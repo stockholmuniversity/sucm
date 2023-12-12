@@ -5,7 +5,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from .sucm_certificate import SucmCertificate
 from .sucm_common import send_email, sucm_secret
 from .sucm_notifygroup import SucmNotifyGroup
-from .sucm_settings import APP_LOGFILE, app_logger, audit_logger, cfg, sys_logger
+from .sucm_settings import (APP_LOGFILE, app_logger, audit_logger, cfg,
+                            sys_logger)
 
 
 def job_function():

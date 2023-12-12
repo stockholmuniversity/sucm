@@ -1,19 +1,12 @@
 import os
 
-from flask import Flask, g, redirect, render_template, request, session, url_for
+from flask import (Flask, g, redirect, render_template, request, session,
+                   url_for)
 from flask_sso import SSO
 from werkzeug.utils import secure_filename
 
-from sucm import (
-    APP_LOGFILE,
-    SucmCertificate,
-    SucmNotifyGroup,
-    app_logger,
-    audit_logger,
-    cfg,
-    start_scheduler,
-    sucm_secret,
-)
+from sucm import (APP_LOGFILE, SucmCertificate, SucmNotifyGroup, app_logger,
+                  audit_logger, cfg, start_scheduler, sucm_secret)
 
 secretKey = cfg.get("SUCM", "secret_key")
 LAST_RUN = None
