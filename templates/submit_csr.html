@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}SUCM: Submit CSR {% endblock %}
+
+{% block submenu %}
+{% include "certificates_submenu.html" %}
+{% endblock %}
+
+{% block content %}
+    <div style="max-width: 600px; padding: 20px;">
+        <div class="card">
+            <div class="card-body">
+                <form action="{{ url_for('submit_csr_response') }}" method="post" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label class="form-label">Cert ID:</label>
+                        <input type="text" name="cert_id" value="{{cert_data[0]}}" class="form-control" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Common Name:</label>
+                        <input type="text" name="common_name" value="{{cert_data[2]}}" class="form-control" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="freeform">Submit new CSR for {{cert_data[2]}}:</label>
+                        <textarea id="freeform" name="freeform" class="form-control" rows="8" placeholder="Paste the CSR here..."></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Or Upload CSR file:</label>
+                        <div class="input-group">
+                            <input type="file" class="form-control" id="customFile" name="csr_file" style="display:none;">
+                            <input type="text" class="form-control" placeholder="Choose file..." id="file-name-display" readonly>
+                            <button type="button" class="btn btn-primary" onclick="document.getElementById('customFile').click();">Browse</button>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <input class="btn btn-primary" type="submit" value="Submit CSR">
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <script>
+        document.getElementById('customFile').addEventListener('change', function () {
+            document.getElementById('file-name-display').value = this.files[0].name;
+        });
+    </script>
+{% endblock %}

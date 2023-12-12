@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}SUCM: Inspect Active Cert Detail{% endblock %}
+{% block submenu %}
+{% include "certificates_submenu.html" %}
+{% endblock %}
+
+{% block content %}
+    <style>
+        .container-inspect {
+            max-width: 900px !important;
+            padding: 20px;
+        }
+        .card {
+            width: 100%;
+            margin: 15px 0;
+        }
+        .table td {
+            padding: .5rem; /* Adjust cell padding */
+        }
+        .inline-form {
+            display: inline-block;
+            margin-right: 10px;
+        }
+
+        pre {
+            white-space: pre-wrap; /* css-3 */
+            white-space: -moz-pre-wrap; /* Mozilla, since 1999 */
+            white-space: -pre-wrap; /* Opera 4-6 */
+            white-space: -o-pre-wrap; /* Opera 7 */
+            word-wrap: break-word; /* Internet Explorer 5.5+ */
+            width: 100%; /* Increase width */
+            line-height: 0.6; /* Decrease line-height */
+        }
+
+    </style>
+
+    <div class="container-inspect">
+        <!-- Insert button here -->
+        <form action="{{ url_for('revoke_cert', active_cert_id=active_cert_id) }}" method="post" class="inline-form">
+            <input class="btn btn-danger" type="submit" value="Revoke">
+        </form>
+
+        <!-- Split container into two columns -->
+        <div class="row">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-striped table-hover">
+                                <tbody>
+                                    <tr><td>ID:<td>{{active_cert_id}}</tr>
+                                    <tr><td>Issuer:<td>{{cert_details['issuer']}}</tr>
+                                    <tr><td>Subject:<td>{{cert_details['subject']}}</tr>
+                                    <tr><td>Serial Number:<td>{{cert_details['serial_number']}}</tr>
+                                    <tr><td>Validity Start:<td>{{cert_details['not_valid_before']}}</tr>
+                                    <tr><td>Validity End:<td>{{cert_details['not_valid_after']}}</tr>
+                                    <tr><td>Public Key:<td>{{cert_details['public_key']}}</tr>
+                                    <tr><td>Key Size:<td>{{cert_details['key_size']}}</tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

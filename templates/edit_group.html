@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}SUCM: Add/Edit notification group {% endblock %}
+
+{% block menubar %}
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <div class="collapse navbar-collapse" id="navbarNav">
+        <ul class="navbar-nav">
+            <li class="nav-item {% if request.path == url_for('add_group') %}active{% endif %}">
+                <a class="nav-link" href="{{ url_for('add_group') }}">Add new notifygroup</a>
+            </li>
+        </ul>
+    </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<style>
+    .form-width {
+        max-width: 500px;  /* Adjust this value as needed */
+    }
+</style>
+<div class="py-5" style="padding-left: 40px;">
+    <div class="row">
+        <div class="col-lg-4 form-width">
+            <form action="{{ url_for('edit_group_response') }}" method="post" class="card p-3 bg-light">
+                <div class="form-group">
+                    <label for="group_id">Group ID:</label>
+                    <input type="text" class="form-control" id="group_id" name="group_id" value="{{group_data[0]}}" readonly="readonly">
+                </div>
+                <div class="form-group">
+                    <label for="group_name">Group name:</label>
+                    <input type="text" class="form-control" id="group_name" name="group_name" value="{{group_data[1]}}">
+                </div>
+                <div class="form-group">
+                    <label for="email_csv">Email addresses (csv):</label>
+                    <input type="text" class="form-control" id="email_csv" name="email_csv" value="{{group_data[2]}}" size="50">
+                </div>
+                <div class="form-group">
+                    <input class="btn btn-primary" type="submit" value="Save group">
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

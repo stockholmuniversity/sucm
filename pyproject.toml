@@ -1,0 +1,52 @@
+[tool.poetry]
+name = "sucm"
+version = "0.1.0"
+description = "SSL certificate manager with web GUI"
+authors = ["Rasmus Thorslund <rasmus.thorslund@su.se>"]
+readme = "README.md"
+
+include = ["templates/**/*.html", { path = "sucm" }]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+mysql-connector-python = "*"
+datetime = "*"
+configparser = "*"
+cryptography = "*"
+flask = "*"
+hvac = "*"
+acme = "*"
+flask-SSO = "*"
+josepy = "*"
+pyopenssl = "*"
+apscheduler = "*"
+
+[tool.poetry.scripts]
+sucm = "app:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[[tool.poetry.source]]
+name = "su"
+url = "https://maven.it.su.se/repository/su-pypi-group/simple"
+
+[tool.pylint]
+    [tool.pylint.master]
+    disable= [
+        'missing-docstring',
+        'broad-exception-caught',
+	'missing-function-docstring',
+	'bare-except',
+	'import-error',
+	'line-too-long',
+	'too-many-locals',
+	'too-many-instance-attributes',
+	'too-many-public-methods',
+	'relative-beyond-top-level',
+	'invalid-name',
+	'attribute-defined-outside-init',
+	]
+
+    output-format = 'parseable'

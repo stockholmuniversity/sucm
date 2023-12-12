@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}SUCM: Automation {% endblock %}
+
+{% block content %}
+
+  <div class="container mt-3">
+    <!-- Last Run Time -->
+    <div class="alert alert-success">
+      <h4>Last Run Time</h4>
+      <p>{{ last_run }}</p>
+    </div>
+
+    <!-- Job Logs -->
+    <div class="card mt-3" style="height: 400px;">
+      <div class="card-header">
+        <h4>Job Logs</h4>
+      </div>
+      <div id="logCard" class="card-body overflow-auto">
+        {% for event in logs %}
+          <p class="card-text">{{ event }}</p>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <script>
+    $(document).ready(function() {
+      var logCard = document.getElementById("logCard");
+      logCard.scrollTop = logCard.scrollHeight;
+    });
+  </script>
+
+{% endblock %}

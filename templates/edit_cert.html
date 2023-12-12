@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}SUCM: Add cert {% endblock %}
+{% block submenu %}
+{% include "certificates_submenu.html" %}
+{% endblock %}
+
+{% block content %}
+<style>
+    .form-width {
+        max-width: 500px;  /* Adjust this value as needed */
+    }
+</style>
+
+<div class="py-5" style="padding-left: 40px;">
+    <div class="row">
+        <div class="col-lg-4 form-width">
+            <form action="{{ url_for('edit_cert_response') }}" method="post" class="card p-3 bg-light">
+                <div class="form-group">
+                    <label for="certificate_authority">Choose certificate authority:</label>
+                    <select id="certificate_authority" name="certificate_authority" class="form-control">
+                        {% for certificate_authority in certificate_authoritys %}
+                            <option value="{{certificate_authority}}">{{certificate_authority[1]}}, {{certificate_authority[2]}}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="notify_group">Choose notifygroup:</label>
+                    <select id="notify_group" name="notify_group" class="form-control">
+                        {% for notify_group in notify_groups %}
+                            <option value="{{notify_group[0]}}">{{notify_group[1]}}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="cert_type">Cert type:</label>
+                    <select id="cert_type" name="cert_type" class="form-control">
+                        {% for cert_type in cert_types %}
+                            <option value="{{ cert_type }}">{{ cert_type }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="secret_path">Choose secret path:</label>
+                    <select id="secret_path" name="secret_path" class="form-control">
+                        {% for secret_path in secret_paths %}
+                            <option value="{{ secret_path }}">{{ secret_path }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                    <div class="form-group">
+                        <label for="cert_id">Cert ID:</label>
+                        <input id="cert_id" type="text" name="cert_id" value="{{cert_data[0]}}" readonly class="form-control">
+                    </div>
+{% if cert_operation == "add" %}
+                    <div class="form-group">
+                        <label for="common_name">Common Name:</label>
+                        <input id="common_name" type="text" name="common_name" placeholder="foobar.su.se" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label for="subject_alt">subjectAltnames (csv):</label>
+                        <input id="subject_alt" type="text" name="subject_alt" placeholder="foo.it.su.se,bar.it.su.se" size=50 class="form-control">
+                    </div>
+{% else %}
+                    <div class="form-group">
+                        <label for="common_name">Common Name:</label>
+                        <input id="common_name" type="text" name="common_name" value="{{cert_data[2]}}" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label for="subject_alt">subjectAltnames (csv):</label>
+                        <input id="subject_alt" type="text" name="subject_alt" value="{{cert_data[3]}}" size=50 class="form-control">
+                    </div>
+
+{% endif %}
+                    <div class="form-group">
+                        <label for="country">Country:</label>
+                        <input id="country" type="text" name="country" value="{{cert_data[4]}}" class="form-control">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="state">State or Province:</label>
+                        <input id="state" type="text" name="state" value="{{cert_data[5]}}" class="form-control">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="city">City:</label>
+                        <input id="city" type="text" name="city" value="{{cert_data[6]}}" class="form-control">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="organisation">Organisation:</label>
+                        <input id="organisation" type="text" name="organisation" value="{{cert_data[7]}}" class="form-control">
+                    </div>
+                <div id="loading-spinner" style="display: none;">
+                    <div class="spinner-border text-primary" role="status">
+                    <span class="sr-only">Loading...</span>
+                    </div>
+                </div>
+
+                <button id="submit-button" type="submit" class="btn btn-primary">Save cert</button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+
+$(document).ready(function(){
+    var certTypeValue = $('select[name="cert_type"]').val();
+
+    $('select[name="notify_group"]').after('<input type="hidden" id="hiddennotify_group" name="notify_group" />');
+
+    if(certTypeValue.trim().toLowerCase() == "automatic"){
+        $('select[name="notify_group"]').prop("disabled", true);
+        $('#hiddennotify_group').val($('select[name="notify_group"]').val());
+    }
+
+    $('select[name="cert_type"]').on('change', function(){
+        certTypeValue = $(this).val();
+        if(certTypeValue.trim().toLowerCase() == "automatic"){
+            $('select[name="notify_group"]').prop("disabled", true);
+            $('#hiddennotify_group').val($('select[name="notify_group"]').val());
+        }
+        else{
+            $('select[name="notify_group"]').prop("disabled", false);
+            $('#hiddennotify_group').val('');
+        }
+    });
+
+    $('select[name="notify_group"]').on('change', function() {
+        $('#hiddennotify_group').val($(this).val());
+    });
+
+    $('form').on('submit', function(e) {
+        $("#submit-button").prop("disabled", true);
+        $("#loading-spinner").show();
+    });
+});
+
+</script>
+{% endblock %}

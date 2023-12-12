@@ -1,0 +1,13 @@
+ <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+                        <div class="collapse navbar-collapse" id="navbarNav">
+                                <ul class="navbar-nav">
+                                <li class="nav-item {% if request.path == url_for('add_cert') %}active{% endif %}">
+                                <a class="nav-link" href="{{ url_for('add_cert') }}">Add new certificate</a></li>
+
+                                <li class="nav-item {% if request.path == url_for('active_certs') %}active{% endif %}">
+                                <a class="nav-link" href="{{ url_for('active_certs') }}">Active certificates</a></li>
+
+
+                                </ul>
+                                </div>
+                        </nav>

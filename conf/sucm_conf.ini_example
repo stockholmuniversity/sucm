@@ -1,0 +1,39 @@
+[mysql_connector]
+host = mysqlhost
+database = databasename
+user = databaseuser
+password = databasepassword
+
+[hvac]
+vault_addr = https://vaultaddress:8200/
+mount_point = secret/vaulttoolsecrets
+role_id =
+secret_id =
+
+[vault_db]
+host = mysqlcluster.it.su.se # this is for su_vault, not needded for sucm_vault.
+database = vaulttool_prod
+user =  vaulttool_prod
+password = 
+
+[cert_defaults]
+country_name = .
+state_or_province_name = .
+locality_name = .
+organization_name = .
+
+[SECTIGO_EAB]
+directory = https://acme.sectigo.com/v2/GEANTOV
+kid = 
+hmac = 
+user_agent = SUCM
+email = 
+account_key_pw =
+
+[SUCM]
+secret_key = "random string"
+sucm_path = /local/cert-app
+lib_path = /local/cert-app/lib
+secrets_backend_module = su_vault
+secrets_backend_class = SuVault
+# default sucm_vault, SucmVault
