@@ -1,12 +1,19 @@
 import os
 
-from flask import (Flask, g, redirect, render_template, request,
-                   session, url_for)
+from flask import Flask, g, redirect, render_template, request, session, url_for
 from flask_sso import SSO
 from werkzeug.utils import secure_filename
 
-from sucm import (APP_LOGFILE, SucmCertificate, SucmNotifyGroup, app_logger,
-                  audit_logger, cfg, start_scheduler, sucm_secret)
+from sucm import (
+    APP_LOGFILE,
+    SucmCertificate,
+    SucmNotifyGroup,
+    app_logger,
+    audit_logger,
+    cfg,
+    start_scheduler,
+    sucm_secret,
+)
 
 secretKey = cfg.get("SUCM", "secret_key")
 LAST_RUN = None
@@ -45,6 +52,7 @@ def index():
 
     return render_template("index.html", all_certs=all_certs)
 
+
 @app.route("/automation")
 def automation():
     logs = []
@@ -52,10 +60,12 @@ def automation():
         logs = f.read().splitlines()
     return render_template("automation.html", logs=logs, last_run=LAST_RUN)
 
+
 @app.route("/active_certs")
 def active_certs():
     all_active_certs = SucmCertificate().get_all_active_certs()
     return render_template("active_certs.html", all_active_certs=all_active_certs)
+
 
 @app.route("/notifygroups")
 def notifygroups():
@@ -85,9 +95,11 @@ def notifygroups():
 
     return render_template("notifygroups.html", all_groups=all_groups)
 
+
 @app.route("/faq")
 def faq():
     return render_template("faq.html")
+
 
 @app.route("/edit_cert_response", methods=["POST"])
 def edit_cert_response():

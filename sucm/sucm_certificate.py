@@ -12,6 +12,7 @@ from .sucm_certificateauthority import SucmCertificateAuthority
 from .sucm_common import send_email, sucm_db, sucm_secret
 from .sucm_notifygroup import SucmNotifyGroup
 
+
 class SucmCertificate:
     def __init__(self, cert_id=None, cert_conf=None):
         if cert_conf is None:
@@ -268,9 +269,7 @@ class SucmCertificate:
         sucm_db.add_update_record("Certificate", cert_data)
 
     def commit_fullchain_to_db(self):
-        active_cert_id = sucm_db.get_next_available_id(
-            "ActiveCertificate"
-        )
+        active_cert_id = sucm_db.get_next_available_id("ActiveCertificate")
         active_cert_data = {
             "ActiveCertificate_Id": active_cert_id,
             "Cert_Id": self.cert_id,

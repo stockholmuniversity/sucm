@@ -91,13 +91,14 @@ class SucmMysql:
             next_id = all_records[-1][0] + 1
             sys_logger.debug(
                 "Executed SELECT query: %s, to find the next available id: %s",
-                sql_command, next_id
+                sql_command,
+                next_id,
             )
             return next_id
         except IndexError:  # if db is empty
             sys_logger.error(
-                "Error while executing SELECT query to find next ID for %s, the db is empty and will return starting id.", 
-                table_name
+                "Error while executing SELECT query to find next ID for %s, the db is empty and will return starting id.",
+                table_name,
             )
             return (
                 100

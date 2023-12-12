@@ -1,5 +1,6 @@
 from .sucm_common import sucm_db
 
+
 class SucmNotifyGroup:
     def __init__(self, group_id=None, group_name=None, email_csv=None):
         self.group_id = group_id
