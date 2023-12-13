@@ -2,14 +2,15 @@ import configparser
 import logging
 import logging.handlers
 import os
+import sys
 
-# Get the directory of the current script
-script_dir = os.path.dirname(os.path.realpath(__file__))
+# Get the root directory of the virtual environment
+venv_root = sys.prefix
 
-# Construct the paths relative to the script directory
-APP_LOGFILE = os.path.join(script_dir, "../application.log")
-AUDIT_LOGFILE = os.path.join(script_dir, "../audit.log")
-CONFIG_FILE = os.path.join(script_dir, "../conf/sucm_conf.ini")
+# Construct the paths relative to the virtual environment root
+APP_LOGFILE = os.path.join(venv_root, 'application.log')
+AUDIT_LOGFILE = os.path.join(venv_root, 'audit.log')
+CONFIG_FILE = os.path.join(venv_root, 'conf', 'sucm_conf.ini')
 
 # This will clear the log file content
 with open(APP_LOGFILE, "w", encoding="utf-8"):
