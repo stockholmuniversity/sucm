@@ -118,35 +118,41 @@ class SucmCertificate:
 
     @staticmethod
     def _create_active_cert_dict(data):
-        details = {
-            "active_cert_id": data[0],
-            "cert_id": data[1],
-            "common_name": data[2],
-            "cert_pem": data[3],
-            "create_date": data[4],
-            "expiry_date": data[5],
-        }
-        return details
+        try:
+            details = {
+                "active_cert_id": data[0],
+                "cert_id": data[1],
+                "common_name": data[2],
+                "cert_pem": data[3],
+                "create_date": data[4],
+                "expiry_date": data[5],
+            }
+            return details
+        except IndexError:
+            return {}
 
     @staticmethod
     def _create_cert_dict(data):
-        details = {
-            "cert_id": data[0],
-            "certificate_authority_id": data[1],
-            "common_name": data[2],
-            "subject_alt": data[3],
-            "country": data[4],
-            "state": data[5],
-            "city": data[6],
-            "organisation": data[7],
-            "status": data[8],
-            "cert_type": data[9],
-            "secret_path": data[10],
-            "notify_group": data[11],
-            "create_date": data[12],
-            "expiry_date": data[13],
-        }
-        return details
+        try:
+            details = {
+                "cert_id": data[0],
+                "certificate_authority_id": data[1],
+                "common_name": data[2],
+                "subject_alt": data[3],
+                "country": data[4],
+                "state": data[5],
+                "city": data[6],
+                "organisation": data[7],
+                "status": data[8],
+                "cert_type": data[9],
+                "secret_path": data[10],
+                "notify_group": data[11],
+                "create_date": data[12],
+                "expiry_date": data[13],
+            }
+            return details
+        except IndexError:
+            return {}
 
     def get_all_active_certs(self, cert_id=None):
         if cert_id is None:
@@ -203,15 +209,21 @@ class SucmCertificate:
     def get_certificate_detail(self, cert_id=None):
         if cert_id is None:
             cert_id = self.cert_id
-        data = sucm_db.get_records("Certificate", f"Cert_Id = {cert_id}")[0]
-        details = self._create_cert_dict(data)
-        return details
+        try:
+            data = sucm_db.get_records("Certificate", f"Cert_Id = {cert_id}")[0]
+            details = self._create_cert_dict(data)
+            return details
+        except IndexError:
+            return {}
 
     def get_common_name(self, common_name):
         common_name = f'"{common_name}"'
-        data = sucm_db.get_records("Certificate", f"Common_Name = {common_name}")
-        details = self._create_cert_dict(data)
-        return details
+        try:
+            data = sucm_db.get_records("Certificate", f"Common_Name = {common_name}")[0]
+            details = self._create_cert_dict(data)
+            return details
+        except IndexError:
+            return {}
 
     def get_renewable_certs(self, days_until_expiry="30"):
         all_data = sucm_db.get_records(

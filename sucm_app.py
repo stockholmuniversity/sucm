@@ -97,7 +97,8 @@ def faq():
 @app.route("/edit_cert_response", methods=["POST"])
 def edit_cert_response():
     try:
-        cert_id = int(request.form["cert_id"])
+        print("0 #############################")
+        cert_id = request.form["cert_id"]
         cert_operation = "add"
         noti_type = "Success"
         noti_msg = "Cert added successfully!"
@@ -106,6 +107,8 @@ def edit_cert_response():
             cert_operation = "edit"
             noti_type = "Success"
             noti_msg = "Cert edited successfully!"
+
+        print("1 #############################")
 
         common_name = request.form["common_name"]
         subject_alt = request.form["subject_alt"]
@@ -116,6 +119,8 @@ def edit_cert_response():
         organisation = request.form["organisation"]
         cert_type = request.form["cert_type"]
         secret_path = request.form["secret_path"]
+        
+        print("2 #############################")
 
         if not common_name:
             noti_type = "Danger"
@@ -129,6 +134,7 @@ def edit_cert_response():
             )
 
         certificate_authority_id = int(certificate_authority[1])
+        print("3 #############################")
 
         existing_common_name = SucmCertificate().get_common_name(common_name)
         if existing_common_name and cert_operation == "add":
@@ -143,6 +149,7 @@ def edit_cert_response():
                     notification_type=noti_type,
                 )
             )
+        print("4 #############################")
 
         notify_group = int(request.form["notify_group"])
         cert_conf = {
@@ -158,6 +165,7 @@ def edit_cert_response():
             "status": None,
             "secret_path": secret_path,
         }
+        print("5 #############################")
 
         cert = SucmCertificate(
             cert_id=cert_id,
@@ -456,9 +464,21 @@ def edit_cert(cert_id):
     )
     certificate_authoritys.remove(current_certificate_authority)
     certificate_authoritys.insert(0, current_certificate_authority)
+
+    new_cert_data = (
+        cert_id,
+        0,
+        cert_data["common_name"],
+        cert_data["subject_alt"],
+        cert_data["country"],
+        cert_data["state"],
+        cert_data["city"],
+        cert_data["organisation"],
+        )
+
     return render_template(
         "edit_cert.html",
-        cert_data=cert_data,
+        cert_data=new_cert_data,
         certificate_authoritys=certificate_authoritys,
         notify_groups=notify_groups,
         cert_types=new_cert_types,
