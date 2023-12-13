@@ -97,7 +97,6 @@ def faq():
 @app.route("/edit_cert_response", methods=["POST"])
 def edit_cert_response():
     try:
-        print("0 #############################")
         cert_id = request.form["cert_id"]
         cert_operation = "add"
         noti_type = "Success"
@@ -108,21 +107,21 @@ def edit_cert_response():
             noti_type = "Success"
             noti_msg = "Cert edited successfully!"
 
-        print("1 #############################")
+        cert_conf = {
+            "common_name": request.form["common_name"],
+            "certificate_authority_id": request.form["certificate_authority"][1],
+            "country": request.form["country"],
+            "state": request.form["state"],
+            "city": request.form["city"],
+            "organisation": request.form["organisation"],
+            "subject_alt": request.form["subject_alt"],
+            "cert_type": request.form["cert_type"],
+            "notify_group": request.form["notify_group"],
+            "status": None,
+            "secret_path": request.form["secret_path"],
+        }
 
-        common_name = request.form["common_name"]
-        subject_alt = request.form["subject_alt"]
-        certificate_authority = request.form["certificate_authority"]
-        country = request.form["country"]
-        state = request.form["state"]
-        city = request.form["city"]
-        organisation = request.form["organisation"]
-        cert_type = request.form["cert_type"]
-        secret_path = request.form["secret_path"]
-        
-        print("2 #############################")
-
-        if not common_name:
+        if not cert_conf["common_name"]:
             noti_type = "Danger"
             noti_msg = "Failure! Missing commonName"
             return redirect(
@@ -133,12 +132,9 @@ def edit_cert_response():
                 )
             )
 
-        certificate_authority_id = int(certificate_authority[1])
-        print("3 #############################")
-
-        existing_common_name = SucmCertificate().get_common_name(common_name)
+        existing_common_name = SucmCertificate().get_common_name(cert_conf["common_name"])
         if existing_common_name and cert_operation == "add":
-            cert_id = existing_common_name[0]
+            cert_id = existing_common_name["cert_id"]
             noti_type = "Danger"
             noti_msg = "Failure! CommonName already exist on this certificate entry, edit this instead!"
             return redirect(
@@ -149,30 +145,13 @@ def edit_cert_response():
                     notification_type=noti_type,
                 )
             )
-        print("4 #############################")
-
-        notify_group = int(request.form["notify_group"])
-        cert_conf = {
-            "common_name": common_name,
-            "certificate_authority_id": certificate_authority_id,
-            "country": country,
-            "state": state,
-            "city": city,
-            "organisation": organisation,
-            "subject_alt": subject_alt,
-            "cert_type": cert_type,
-            "notify_group": notify_group,
-            "status": None,
-            "secret_path": secret_path,
-        }
-        print("5 #############################")
 
         cert = SucmCertificate(
             cert_id=cert_id,
             cert_conf=cert_conf,
         )
 
-        if cert_operation == "add" and cert_type == "Automatic":
+        if cert_operation == "add" and cert_conf["cert_type"] == "Automatic":
             cert.create_new_key_and_csr()
             cert.renew_cert_with_csr()
         else:
@@ -195,6 +174,7 @@ def edit_cert_response():
                 notification_type=noti_type,
             )
         )
+
     except Exception as e:
         print(f"An error occurred: {e}")
         noti_type = "Danger"
@@ -367,20 +347,19 @@ def add_cert():
     notify_groups = SucmNotifyGroup().get_all_notifygroups()
     secret_paths = sucm_secret.get_all_paths()
     cert_id = SucmCertificate().get_next_cert_id()
+    cert_data = {
+        "cert_id": cert_id,
+        "common_name": None,
+        "subject_alt": None,
+        "country": cfg.get("cert_defaults", "country_name"),
+        "state": cfg.get("cert_defaults", "state_or_province_name"),
+        "city": cfg.get("cert_defaults", "locality_name"),
+        "organisation": cfg.get("cert_defaults", "organization_name"),
+    }
+
     return render_template(
         "edit_cert.html",
-        cert_data=(
-            cert_id,
-            0,
-            None,
-            None,
-            cfg.get("cert_defaults", "country_name"),
-            cfg.get("cert_defaults", "state_or_province_name"),
-            cfg.get("cert_defaults", "locality_name"),
-            cfg.get("cert_defaults", "organization_name"),
-            "Disabled",
-            "Automatic",
-        ),
+        cert_data=cert_data,
         certificate_authoritys=certificate_authoritys,
         notify_groups=notify_groups,
         cert_types=CERT_TYPES,
@@ -465,20 +444,11 @@ def edit_cert(cert_id):
     certificate_authoritys.remove(current_certificate_authority)
     certificate_authoritys.insert(0, current_certificate_authority)
 
-    new_cert_data = (
-        cert_id,
-        0,
-        cert_data["common_name"],
-        cert_data["subject_alt"],
-        cert_data["country"],
-        cert_data["state"],
-        cert_data["city"],
-        cert_data["organisation"],
-        )
+    cert_data["cert_id"] = cert_id
 
     return render_template(
         "edit_cert.html",
-        cert_data=new_cert_data,
+        cert_data=cert_data,
         certificate_authoritys=certificate_authoritys,
         notify_groups=notify_groups,
         cert_types=new_cert_types,

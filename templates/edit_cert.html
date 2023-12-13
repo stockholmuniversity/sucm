@@ -7,7 +7,7 @@
 {% block content %}
 <style>
     .form-width {
-        max-width: 500px;  /* Adjust this value as needed */
+        max-width: 500px;
     }
 </style>
 
@@ -53,7 +53,7 @@
 
                     <div class="form-group">
                         <label for="cert_id">Cert ID:</label>
-                        <input id="cert_id" type="text" name="cert_id" value="{{cert_data[0]}}" readonly class="form-control">
+                        <input id="cert_id" type="text" name="cert_id" value="{{cert_data["cert_id"]}}" readonly class="form-control">
                     </div>
 {% if cert_operation == "add" %}
                     <div class="form-group">
@@ -67,32 +67,32 @@
 {% else %}
                     <div class="form-group">
                         <label for="common_name">Common Name:</label>
-                        <input id="common_name" type="text" name="common_name" value="{{cert_data[2]}}" class="form-control">
+                        <input id="common_name" type="text" name="common_name" value="{{cert_data["common_name"]}}" class="form-control">
                     </div>
                     <div class="form-group">
                         <label for="subject_alt">subjectAltnames (csv):</label>
-                        <input id="subject_alt" type="text" name="subject_alt" value="{{cert_data[3]}}" size=50 class="form-control">
+                        <input id="subject_alt" type="text" name="subject_alt" value="{{cert_data["subject_alt"]}}" size=50 class="form-control">
                     </div>
 
 {% endif %}
                     <div class="form-group">
                         <label for="country">Country:</label>
-                        <input id="country" type="text" name="country" value="{{cert_data[4]}}" class="form-control">
+                        <input id="country" type="text" name="country" value="{{cert_data["country"]}}" class="form-control">
                     </div>
 
                     <div class="form-group">
                         <label for="state">State or Province:</label>
-                        <input id="state" type="text" name="state" value="{{cert_data[5]}}" class="form-control">
+                        <input id="state" type="text" name="state" value="{{cert_data["state"]}}" class="form-control">
                     </div>
 
                     <div class="form-group">
                         <label for="city">City:</label>
-                        <input id="city" type="text" name="city" value="{{cert_data[6]}}" class="form-control">
+                        <input id="city" type="text" name="city" value="{{cert_data["city"]}}" class="form-control">
                     </div>
 
                     <div class="form-group">
                         <label for="organisation">Organisation:</label>
-                        <input id="organisation" type="text" name="organisation" value="{{cert_data[7]}}" class="form-control">
+                        <input id="organisation" type="text" name="organisation" value="{{cert_data["organisation"]}}" class="form-control">
                     </div>
                 <div id="loading-spinner" style="display: none;">
                     <div class="spinner-border text-primary" role="status">
