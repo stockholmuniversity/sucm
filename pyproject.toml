@@ -5,7 +5,7 @@ description = "SSL certificate manager with web GUI"
 authors = ["Rasmus Thorslund <rasmus.thorslund@su.se>"]
 readme = "README.md"
 
-include = ["templates/**/*.html", { path = "sucm" }]
+include = ["templates/**/*.html", { path = "sucm" }, "app.py"]
 
 [tool.poetry.dependencies]
 python = "^3.9"
