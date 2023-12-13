@@ -565,6 +565,8 @@ def edit_group(group_id):
     group_data = SucmNotifyGroup().get_notifygroup_detail(int(group_id))
     return render_template("edit_group.html", group_data=group_data)
 
+def main():
+    app.run(debug=True)
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    main()
