@@ -57,7 +57,7 @@ def job_function():
 
     global LAST_RUN
     app_logger.info("Job completed!")
-    LAST_RUN = datetime.datetime.now()
+    LAST_RUN = datetime.now()
 
 
 def start_scheduler():
