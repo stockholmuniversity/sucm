@@ -5,7 +5,7 @@ description = "SSL certificate manager with web GUI"
 authors = ["Rasmus Thorslund <rasmus.thorslund@su.se>"]
 readme = "README.md"
 
-include = ["templates/**/*.html", { path = "sucm" }, "app.py"]
+include = ["templates/**/*.html", { path = "sucm" }, "sucm_app.py"]
 
 [tool.poetry.dependencies]
 python = "^3.9"
@@ -27,7 +27,8 @@ pylint = "^3.0.0"
 black = "^23.9.1"
 
 [tool.poetry.scripts]
-sucm = "app:main"
+sucm_app = "sucm_app:main"
+
 
 [build-system]
 requires = ["poetry-core"]
