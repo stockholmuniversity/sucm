@@ -14,7 +14,7 @@ plugin_module_name = cfg.get("SUCM", "secrets_backend_module")
 
 try:
     # Dynamically import the module
-    plugin_module = importlib.import_module(f"sucm.plugins.{plugin_module_name}")
+    plugin_module = importlib.import_module(f"sucm.sucm_secret.{plugin_module_name}")
 
     # Fetch the class from the module
     plugin_class = getattr(plugin_module, plugin_class_name)

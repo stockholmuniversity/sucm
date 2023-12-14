@@ -102,7 +102,7 @@ class SucmCertificate:
         # Import the plugin module (filename is lowercase)
         plugin_module_name = plugin_class_name.lower()
         plugin_module = importlib.import_module(
-            f"lib.sucm.plugins.{plugin_module_name}"
+            f"sucm.sucm_certificateauthority.{plugin_module_name}"
         )
 
         # Fetch the class from the module (class name is in its original case)
