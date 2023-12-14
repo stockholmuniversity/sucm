@@ -1,11 +1,9 @@
 **example wsgi script**
-
-    import sys
-    
-    sys.path.insert(0, "/local/cert-app")
-    
-    from app import app as application
-
+	import sys
+	
+	sys.path.insert(0, "/local/cert-app")
+	
+	from sucm_app import app as application
 **example apache conf**
 
     <VirtualHost *:80>
@@ -30,7 +28,7 @@
       DocumentRoot /local/cert-app
       ErrorDocument 401 "You are missing entitlement required to use this service."
     
-    
+      # this can probably be reduced after commit 89fc5e3, that removed cert_pem from active_cert dictionary.
       LimitRequestLine 90000
       LimitRequestFieldSize 90000
     
