@@ -120,7 +120,7 @@ def edit_cert_response():
             noti_msg = "Failure! Missing commonName"
             return redirect(
                 url_for(
-                    "index",
+                    "main.index",
                     notification_message=noti_msg,
                     notification_type=noti_type,
                 )
@@ -133,7 +133,7 @@ def edit_cert_response():
             noti_msg = "Failure! CommonName already exist on this certificate entry, edit this instead!"
             return redirect(
                 url_for(
-                    "inspect_cert",
+                    "main.inspect_cert",
                     cert_id=cert_id,
                     notification_message=noti_msg,
                     notification_type=noti_type,
@@ -162,7 +162,7 @@ def edit_cert_response():
 
         return redirect(
             url_for(
-                "inspect_cert",
+                "main.inspect_cert",
                 cert_id=cert_id,
                 notification_message=noti_msg,
                 notification_type=noti_type,
@@ -175,7 +175,7 @@ def edit_cert_response():
         noti_msg = "An unexpected error occurred!"
         return redirect(
             url_for(
-                "index",
+                "main.index",
                 notification_message=noti_msg,
                 notification_type=noti_type,
             )
@@ -210,7 +210,7 @@ def edit_group_response():
 
     return redirect(
         url_for(
-            "notifygroups",
+            "main.notifygroups",
             notification_message=noti_msg,
             notification_type=noti_type,
         )
@@ -242,7 +242,7 @@ def delete_group(group_id):
         noti_msg = "Failed to remove NotifyGroup!"
     return redirect(
         url_for(
-            "notifygroups",
+            "main.notifygroups",
             notification_message=noti_msg,
             notification_type=noti_type,
         )
@@ -266,20 +266,19 @@ def delete_cert(cert_id):
         noti_type = "Danger"
         noti_msg = "Failed to remove Certificate!"
     return redirect(
-        url_for("index", notification_message=noti_msg, notification_type=noti_type)
+        url_for("main.index", notification_message=noti_msg, notification_type=noti_type)
     )
 
 
 @bp.route("/inspect_active_cert/<active_cert_id>", methods=["POST", "GET"])
 def inspect_active_cert(active_cert_id):
+    audit_logger.info("audit log test. user: %s", session.get("username"))
     details = SucmCertificate().get_active_cert_ssl_data(active_cert_id)
-    chain_pem = SucmCertificate().get_active_cert_detail(active_cert_id)["cert_pem"]
 
     return render_template(
         "inspect_active_cert.html",
         active_cert_id=active_cert_id,
         cert_details=details,
-        chain_pem=chain_pem,
     )
 
 
@@ -292,21 +291,17 @@ def revoke_cert(active_cert_id):
         SucmCertificate().revoke_cert(active_cert_id)
         noti_type = "Success"
         noti_msg = "Cert revoked successfully!"
-        audit_logger.info(
-            "Active cert for: "
-            + active_cert["common_name"]
-            + " with id: "
-            + active_cert["active_cert_id"]
-            + " removed by user "
-            + session.get("username")
-        )
+        audit_logger.info("Active cert for: %s with id: %s removed by user %s",
+            active_cert["common_name"], 
+            str(active_cert["active_cert_id"]), 
+            session.get("username")
+            )
     except:
         noti_type = "Danger"
         noti_msg = "Failed to revoke certificate!"
 
     try:
-        cert_id = SucmCertificate().get_active_cert_detail(active_cert_id)["cert_id"]
-
+        cert_id = active_cert["cert_id"]
         cert_data = SucmCertificate().get_certificate_detail(cert_id)
         certificate_authority_detail = (
             SucmCertificate().get_certificate_authority_detail(
@@ -316,7 +311,7 @@ def revoke_cert(active_cert_id):
         all_active_certs = SucmCertificate().get_all_active_certs(cert_id)
         return redirect(
             url_for(
-                "inspect_cert",
+                "main.inspect_cert",
                 cert_id=cert_id,
                 cert_data=cert_data,
                 certificate_authority_detail=certificate_authority_detail,
@@ -328,7 +323,7 @@ def revoke_cert(active_cert_id):
     except:
         return redirect(
             url_for(
-                "active_certs",
+                "main.active_certs",
                 notification_message=noti_msg,
                 notification_type=noti_type,
             )
@@ -468,7 +463,7 @@ def renew_crt(cert_id):
     noti_msg = "New CRT collected successfully!"
     return redirect(
         url_for(
-            "inspect_cert",
+            "main.inspect_cert",
             cert_id=cert_id,
             notification_message=noti_msg,
             notification_type=noti_type,
@@ -487,7 +482,7 @@ def renew_csr(cert_id):
     noti_msg = "New CSR and key genereated successfully!"
     return redirect(
         url_for(
-            "inspect_cert",
+            "main.inspect_cert",
             cert_id=cert_id,
             notification_message=noti_msg,
             notification_type=noti_type,
@@ -518,7 +513,7 @@ def submit_csr_response():
         all_active_certs = SucmCertificate().get_all_active_certs(cert_id)
         return redirect(
             url_for(
-                "inspect_cert",
+                "main.inspect_cert",
                 cert_id=cert_id,
                 notification_message=noti_msg,
                 notification_type=noti_type,
@@ -535,7 +530,7 @@ def submit_csr_response():
     noti_msg = "New CRT collected successfully!"
     return redirect(
         url_for(
-            "inspect_cert",
+            "main.inspect_cert",
             cert_id=cert_id,
             notification_message=noti_msg,
             notification_type=noti_type,

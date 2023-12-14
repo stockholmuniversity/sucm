@@ -36,7 +36,7 @@
 
     <div class="container-inspect">
         <!-- Insert button here -->
-        <form action="{{ url_for('revoke_cert', active_cert_id=active_cert_id) }}" method="post" class="inline-form">
+        <form action="{{ url_for('main.revoke_cert', active_cert_id=active_cert_id) }}" method="post" class="inline-form">
             <input class="btn btn-danger" type="submit" value="Revoke">
         </form>
 

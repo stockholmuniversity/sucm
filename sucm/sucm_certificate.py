@@ -123,7 +123,7 @@ class SucmCertificate:
                 "active_cert_id": data[0],
                 "cert_id": data[1],
                 "common_name": data[2],
-                "cert_pem": data[3],
+#                "cert_pem": data[3],
                 "create_date": data[4],
                 "expiry_date": data[5],
             }
@@ -177,8 +177,17 @@ class SucmCertificate:
         details = self._create_active_cert_dict(data)
         return details
 
+    def get_active_cert_pem(self, active_cert_id):
+        data = sucm_db.get_records(
+            "ActiveCertificate", f"ActiveCertificate_Id = {active_cert_id}"
+        )[0]
+        details = data[3]
+        return details
+
+
     def get_active_cert_ssl_data(self, active_cert_id):
-        pem_data = self.get_active_cert_detail(active_cert_id)["cert_pem"]
+        #pem_data = self.get_active_cert_detail(active_cert_id)["cert_pem"]
+        pem_data = self.get_active_cert_pem(active_cert_id)
         cert = x509.load_pem_x509_certificate(pem_data.encode(), default_backend())
 
         # Parse details from certificate
@@ -384,7 +393,8 @@ class SucmCertificate:
         self.commit_changes_to_db()
 
     def revoke_cert(self, active_cert_id):
-        fullchain = self.get_active_cert_detail(active_cert_id)[3]
+        #fullchain = self.get_active_cert_detail(active_cert_id)["cert_pem"]
+        fullchain = self.get_active_cert_pem(active_cert_id)
         self._load_certificate_authority()
         self.cert_authority.revoke_cert(fullchain)
         self.delete_active_cert(active_cert_id)

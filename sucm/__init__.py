@@ -2,7 +2,7 @@ from flask import Flask
 from flask_sso import SSO
 
 from . import sucm_routes
-from .sucn_settings import cfg
+from .sucm_settings import cfg
 
 
 def create_app():

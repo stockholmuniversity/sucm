@@ -57,7 +57,7 @@
                     <td>{{cert["expiry_date"]}}</td>
                     <td>{{cert["cert_type"]}}</td>
                     <td class="table-actions">
-                        <form action="{{ url_for('inspect_cert', cert_id=cert["cert_id"] ) }}" method="post" class="inline-form">
+                        <form action="{{ url_for('main.inspect_cert', cert_id=cert["cert_id"] ) }}" method="post" class="inline-form">
                             <input class="btn btn-primary" type="submit" name="{{ cert["cert_id"] }}" value="Inspect">
                         </form>
                     </td>

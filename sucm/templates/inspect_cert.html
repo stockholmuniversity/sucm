@@ -41,19 +41,19 @@
         <div class="card">
             <div class="card-body">
                 <div class="action-btns">
-                    <form action="{{ url_for('delete_cert', cert_id=cert_data["cert_id"]) }}" method="post" class="inline-form">
+                    <form action="{{ url_for('main.delete_cert', cert_id=cert_data["cert_id"]) }}" method="post" class="inline-form">
                         <input class="btn btn-danger" type="submit" value="Delete">
                     </form>
-                    <form action="{{ url_for('edit_cert', cert_id=cert_data["cert_id"]) }}" method="post" class="inline-form">
+                    <form action="{{ url_for('main.edit_cert', cert_id=cert_data["cert_id"]) }}" method="post" class="inline-form">
                         <input class="btn btn-primary" type="submit" value="Edit">
                     </form>
 
                     {% if cert_data["cert_type"] == "Manual" %}
-                    <form action="{{ url_for('submit_csr', cert_id=cert_data["cert_id"]) }}" method="post" class="inline-form">
+                    <form action="{{ url_for('main.submit_csr', cert_id=cert_data["cert_id"]) }}" method="post" class="inline-form">
                         <input class="btn btn-primary" type="submit" value="Submit CSR manually and fetch CRT">
                     </form>
 		    {% endif %}
-                    <form action="{{ url_for('renew_crt', cert_id=cert_data["cert_id"]) }}" method="post" class="inline-form">
+                    <form action="{{ url_for('main.renew_crt', cert_id=cert_data["cert_id"]) }}" method="post" class="inline-form">
                         <input class="btn btn-primary" type="submit" value="Generate new CSR and fetch CRT">
                     </form>
 
@@ -112,10 +112,10 @@
                                 <td>{{cert['expiry_date']}}</td>
                                 <td>{{cert['serial_number']}}</td>
                                 <td>
-                                    <form action="{{ url_for('revoke_cert', active_cert_id=cert['active_cert_id']) }}" method="post" class="inline-form">
+                                    <form action="{{ url_for('main.revoke_cert', active_cert_id=cert['active_cert_id']) }}" method="post" class="inline-form">
                                         <input class="btn btn-danger" type="submit" value="Revoke">
                                     </form>
-                                    <form action="{{ url_for('inspect_active_cert', active_cert_id=cert['active_cert_id']) }}" method="get" class="inline-form">
+                                    <form action="{{ url_for('main.inspect_active_cert', active_cert_id=cert['active_cert_id']) }}" method="get" class="inline-form">
                                         <input class="btn btn-primary" type="submit" value="Inspect">
                                     </form>
                                 </td>
