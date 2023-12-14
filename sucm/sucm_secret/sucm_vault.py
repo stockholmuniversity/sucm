@@ -1,7 +1,7 @@
 import hvac
 
-from . import SucmSecret
 from ..sucm_settings import cfg, sys_logger
+from . import SucmSecret
 
 vault_config = {
     "vault_addr": cfg.get("hvac", "vault_addr"),

@@ -4,8 +4,8 @@ from acme import client, messages
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 
-from . import SucmCertificateAuthority
 from ..sucm_settings import cfg, sys_logger
+from . import SucmCertificateAuthority
 
 CA_PLUGIN_NAME = "SECTIGO_EAB"
 sectigo_eab_config = {

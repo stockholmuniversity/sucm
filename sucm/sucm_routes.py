@@ -7,7 +7,7 @@ from werkzeug.utils import secure_filename
 from .sucm_certificate import SucmCertificate
 from .sucm_common import sucm_secret
 from .sucm_notifygroup import SucmNotifyGroup
-from .sucm_settings import (APP_LOGFILE, audit_logger, cfg)
+from .sucm_settings import APP_LOGFILE, audit_logger, cfg
 
 LAST_RUN = None
 
