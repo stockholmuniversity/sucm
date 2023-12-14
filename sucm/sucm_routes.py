@@ -8,10 +8,7 @@ from .sucm_certificate import SucmCertificate
 from .sucm_common import sucm_secret
 from .sucm_notifygroup import SucmNotifyGroup
 from .sucm_settings import APP_LOGFILE, audit_logger, cfg
-
-LAST_RUN = None
-
-CERT_TYPES = ["Automatic", "Manual"]
+from .sucm_globals import state, CERT_TYPES
 
 bp = Blueprint('main', __name__)
 
@@ -43,9 +40,10 @@ def index():
 @bp.route("/automation")
 def automation():
     logs = []
+    last_run = state["LAST_RUN"]
     with open(APP_LOGFILE, "r", encoding="utf-8") as f:
         logs = f.read().splitlines()
-    return render_template("automation.html", logs=logs, last_run=LAST_RUN)
+    return render_template("automation.html", logs=logs, last_run=last_run)
 
 
 @bp.route("/active_certs")

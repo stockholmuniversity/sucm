@@ -105,7 +105,10 @@ class SuVault(SucmSecret):
             description = "Auto imported by script"
             title = ""
             secret_key = self.secret_path + file_name
-            eppn = getattr(g, "eppn", "SUCM")
+            try:
+                eppn = getattr(g, "eppn", "SUCM")
+            except RuntimeError:
+                eppn = "SUCM"  # Default value
 
             vault_metadata = {
                 "secret_key": secret_key,

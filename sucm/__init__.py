@@ -3,7 +3,7 @@ from flask_sso import SSO
 
 from . import sucm_routes
 from .sucm_settings import cfg
-
+from .sucm_automation import start_scheduler
 
 def create_app():
     secretKey = cfg.get("SUCM", "secret_key")
@@ -13,5 +13,6 @@ def create_app():
     SSO(app=app)
 
     app.register_blueprint(sucm_routes.bp)
+    start_scheduler()
 
     return app

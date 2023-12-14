@@ -6,12 +6,9 @@ from .sucm_certificate import SucmCertificate
 from .sucm_common import send_email
 from .sucm_notifygroup import SucmNotifyGroup
 from .sucm_settings import app_logger
-
-LAST_RUN = None
+from .sucm_globals import state
 
 def job_function():
-    global LAST_RUN # pylint: disable=W0603
-
     app_logger.info("Job started!")
     certs_to_renew = SucmCertificate().get_renewable_certs()
     certs_to_remove = SucmCertificate().get_expired_certs()
@@ -33,7 +30,7 @@ def job_function():
                 cert_obj.set_current_class_values_from_db()
                 cert_obj.create_new_key_and_csr()
                 cert_obj.renew_cert_with_csr()
-                app_logger.info("%s has been renewed automatically and pushed to vault.", cert.common_name)
+                app_logger.info("%s has been renewed automatically and pushed to vault.", cert["common_name"])
                 del cert_obj
 
     if certs_to_remove:
@@ -46,10 +43,10 @@ def job_function():
             )
 
     app_logger.info("Job completed!")
-    LAST_RUN = datetime.now()
+    state["LAST_RUN"] = datetime.now()
 
 def start_scheduler():
     app_logger.info("Scheduler started with an interval of 10 minutes.")
     scheduler = BackgroundScheduler()
-    scheduler.add_job(job_function, "interval", minutes=10)
+    scheduler.add_job(job_function, "interval", minutes=1)
     scheduler.start()
