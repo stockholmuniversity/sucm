@@ -48,5 +48,5 @@ def job_function():
 def start_scheduler():
     app_logger.info("Scheduler started with an interval of 10 minutes.")
     scheduler = BackgroundScheduler()
-    scheduler.add_job(job_function, "interval", minutes=1)
+    scheduler.add_job(job_function, "interval", minutes=10)
     scheduler.start()
