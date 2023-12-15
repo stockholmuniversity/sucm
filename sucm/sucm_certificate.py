@@ -427,12 +427,17 @@ class SucmCertificate:
             self.expiry_date = cert_data[1]
             self.fullchain = cert_data[2]
 
-            # create a cachain from the fullchain
+            # create a cachain file  from the fullchain
             fullchain_certs = self._split_pem_chain(self.fullchain)
+
+            ## ca and intermediate
             #            cachain_split = fullchain_certs[1:]
             #            cachain_bytes = b"\n".join(c.encode() for c in cachain_split)
             #            self.cachain = cachain_bytes.decode("utf-8")
+
+            ## only ca
             self.cachain = fullchain_certs[1] if fullchain_certs else None
+
 
             self.create_date = datetime.today()
             self.status = "Renewed CRT"
