@@ -6,11 +6,12 @@ from werkzeug.utils import secure_filename
 
 from .sucm_certificate import SucmCertificate
 from .sucm_common import sucm_secret
+from .sucm_globals import CERT_TYPES, state
 from .sucm_notifygroup import SucmNotifyGroup
 from .sucm_settings import APP_LOGFILE, audit_logger, cfg
-from .sucm_globals import state, CERT_TYPES
 
-bp = Blueprint('main', __name__)
+bp = Blueprint("main", __name__)
+
 
 @bp.before_request
 def before_request():
@@ -124,7 +125,9 @@ def edit_cert_response():
                 )
             )
 
-        existing_common_name = SucmCertificate().get_common_name(cert_conf["common_name"])
+        existing_common_name = SucmCertificate().get_common_name(
+            cert_conf["common_name"]
+        )
         if existing_common_name and cert_operation == "add":
             cert_id = existing_common_name["cert_id"]
             noti_type = "Danger"
@@ -264,7 +267,9 @@ def delete_cert(cert_id):
         noti_type = "Danger"
         noti_msg = "Failed to remove Certificate!"
     return redirect(
-        url_for("main.index", notification_message=noti_msg, notification_type=noti_type)
+        url_for(
+            "main.index", notification_message=noti_msg, notification_type=noti_type
+        )
     )
 
 
@@ -289,11 +294,12 @@ def revoke_cert(active_cert_id):
         SucmCertificate().revoke_cert(active_cert_id)
         noti_type = "Success"
         noti_msg = "Cert revoked successfully!"
-        audit_logger.info("Active cert for: %s with id: %s removed by user %s",
-            active_cert["common_name"], 
-            str(active_cert["active_cert_id"]), 
-            session.get("username")
-            )
+        audit_logger.info(
+            "Active cert for: %s with id: %s removed by user %s",
+            active_cert["common_name"],
+            str(active_cert["active_cert_id"]),
+            session.get("username"),
+        )
     except:
         noti_type = "Danger"
         noti_msg = "Failed to revoke certificate!"

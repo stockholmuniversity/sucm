@@ -2,8 +2,9 @@ from flask import Flask
 from flask_sso import SSO
 
 from . import sucm_routes
-from .sucm_settings import cfg
 from .sucm_automation import start_scheduler
+from .sucm_settings import cfg
+
 
 def create_app():
     secretKey = cfg.get("SUCM", "secret_key")

@@ -4,9 +4,10 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from .sucm_certificate import SucmCertificate
 from .sucm_common import send_email
+from .sucm_globals import state
 from .sucm_notifygroup import SucmNotifyGroup
 from .sucm_settings import app_logger
-from .sucm_globals import state
+
 
 def job_function():
     app_logger.info("Job started!")
@@ -24,13 +25,20 @@ def job_function():
                         cert["common_name"] + " needs to be renewed",
                         email,
                     )
-                    app_logger.info("%s: Email has been sent to %s to request manual intervention.", cert["common_name"], email)
+                    app_logger.info(
+                        "%s: Email has been sent to %s to request manual intervention.",
+                        cert["common_name"],
+                        email,
+                    )
             else:
                 cert_obj = SucmCertificate(cert_id=cert["cert_id"])
                 cert_obj.set_current_class_values_from_db()
                 cert_obj.create_new_key_and_csr()
                 cert_obj.renew_cert_with_csr()
-                app_logger.info("%s has been renewed automatically and pushed to vault.", cert["common_name"])
+                app_logger.info(
+                    "%s has been renewed automatically and pushed to vault.",
+                    cert["common_name"],
+                )
                 del cert_obj
 
     if certs_to_remove:
@@ -39,11 +47,14 @@ def job_function():
                 active_cert_id=active_cert["active_cert_id"]
             )
             app_logger.info(
-                "Certificate for %s that expired %s has been removed from the database, since it is no longer valid.", active_cert["common_name"], active_cert["expiry_date"]
+                "Certificate for %s that expired %s has been removed from the database, since it is no longer valid.",
+                active_cert["common_name"],
+                active_cert["expiry_date"],
             )
 
     app_logger.info("Job completed!")
     state["LAST_RUN"] = datetime.now()
+
 
 def start_scheduler():
     app_logger.info("Scheduler started with an interval of 10 minutes.")

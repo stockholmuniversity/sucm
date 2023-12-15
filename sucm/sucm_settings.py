@@ -8,9 +8,9 @@ import sys
 venv_root = sys.prefix
 
 # Construct the paths relative to the virtual environment root
-APP_LOGFILE = os.path.join(venv_root, 'application.log')
-AUDIT_LOGFILE = os.path.join(venv_root, 'audit.log')
-CONFIG_FILE = os.path.join(venv_root, 'conf', 'sucm_conf.ini')
+APP_LOGFILE = os.path.join(venv_root, "application.log")
+AUDIT_LOGFILE = os.path.join(venv_root, "audit.log")
+CONFIG_FILE = os.path.join(venv_root, "conf", "sucm_conf.ini")
 
 # This will clear the log file content
 with open(APP_LOGFILE, "w", encoding="utf-8"):
