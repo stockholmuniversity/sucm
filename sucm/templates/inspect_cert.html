@@ -33,7 +33,14 @@
         .loading-spinner {
         margin-left: 10px;
         }
-
+        .expandable-cell {
+            cursor: pointer;
+            max-height: 3em;
+            overflow: hidden;
+            display: block;
+            transition: max-height 0.3s ease;
+            word-break: break-all; /* This will break long words if necessary */
+        }
 
     </style>
 
@@ -62,20 +69,20 @@
                 <div class="table-responsive">
                     <table class="table table-striped table-hover">
                         <tbody>
-                            <tr><td>Cert ID:<td>{{cert_data["cert_id"]}}</tr>
-                            <tr><td>CA:<td>{{certificate_authority_detail[1]}}</tr>
-                            <tr><td>Common_Name:<td>{{cert_data["common_name"]}}</tr>
-                            <tr><td>Subject_Alt:<td>{{cert_data["subject_alt"]}}</tr>
-                            <tr><td>Country:<td>{{cert_data["country"]}}</tr>
-                            <tr><td>State:<td>{{cert_data["state"]}}</tr>
-                            <tr><td>City:<td>{{cert_data["city"]}}</tr>
-                            <tr><td>Organization:<td>{{cert_data["organisation"]}}</tr>
-                            <tr><td>Status:<td>{{cert_data["status"]}}</tr>
-                            <tr><td>Type:<td>{{cert_data["cert_type"]}}</tr>
-                            <tr><td>Secret Path:<td>{{cert_data["secret_path"]}}</tr>
-                            <tr><td>Notifygroup:<td>{{cert_data["notify_group"]}}</tr>
-                            <tr><td>Create Date:<td>{{cert_data["create_date"]}}</tr>
-                            <tr><td>Expiry Date:<td>{{cert_data["expiry_date"]}}</tr>
+                            <tr><td>Cert ID:</td><td>{{cert_data["cert_id"]}}</td></tr>
+                            <tr><td>CA:</td><td>{{certificate_authority_detail[1]}}</td></tr>
+                            <tr><td>Common_Name:</td><td>{{cert_data["common_name"]}}</td></tr>
+                            <tr><td>Subject_Alt:</td><td class="expandable-cell">{{cert_data["subject_alt"]}}</td></tr>
+                            <tr><td>Country:</td><td>{{cert_data["country"]}}</td></tr>
+                            <tr><td>State:</td><td>{{cert_data["state"]}}</td></tr>
+                            <tr><td>City:</td><td>{{cert_data["city"]}}</td></tr>
+                            <tr><td>Organization:</td><td>{{cert_data["organisation"]}}</td></tr>
+                            <tr><td>Status:</td><td>{{cert_data["status"]}}</td></tr>
+                            <tr><td>Type:</td><td>{{cert_data["cert_type"]}}</td></tr>
+                            <tr><td>Secret Path:</td><td>{{cert_data["secret_path"]}}</td></tr>
+                            <tr><td>Notifygroup:</td><td>{{cert_data["notify_group"]}}</td></tr>
+                            <tr><td>Create Date:</td><td>{{cert_data["create_date"]}}</td></tr>
+                            <tr><td>Expiry Date:</td><td>{{cert_data["expiry_date"]}}</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -133,6 +140,16 @@ $(document).ready(function() {
     $(".inline-form").on("submit", function() {
         $(this).find(":submit").prop("disabled", true);
         $(this).find(":submit").after('<span class="spinner-border spinner-border-sm loading-spinner" role="status" aria-hidden="true"></span>');
+    });
+
+    // Expandable cell functionality
+    $('.expandable-cell').on('click', function() {
+        var cell = $(this);
+        if (cell.hasClass('expanded')) {
+            cell.removeClass('expanded').css('max-height', '3em');
+        } else {
+            cell.addClass('expanded').css('max-height', 'none');
+        }
     });
 });
 

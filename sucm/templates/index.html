@@ -28,6 +28,16 @@
         .table-actions {
             text-align: right;
         }
+
+        .expandable-cell {
+            cursor: pointer;
+            max-height: 3em;
+            overflow: hidden;
+            display: block;
+            transition: max-height 0.3s ease;
+            word-break: break-all; /* This will break long words if necessary */
+        }
+
     </style>
 
     <div class="search-bar">
@@ -52,7 +62,7 @@
                 <tr class="certificate-row">
                     <th scope="row">{{cert["cert_id"]}}</th>
                     <td>{{cert["common_name"]}}</td>
-                    <td>{{cert["subject_alt"]}}</td>
+                    <td class="expandable-cell">{{cert["subject_alt"]}}</td>
                     <td>{{cert["create_date"]}}</td>
                     <td>{{cert["expiry_date"]}}</td>
                     <td>{{cert["cert_type"]}}</td>
@@ -68,15 +78,30 @@
     </div>
 
     <script>
-    $(document).ready(function(){
-      $("#search").on("keyup", function() {
+
+$(document).ready(function(){
+    // Existing search functionality
+    $("#search").on("keyup", function() {
         var value = $(this).val().toLowerCase();
         $("#certificates-table .certificate-row").filter(function() {
-          $(this).toggle($(this).text().toLowerCase().indexOf(value) > -1)
+            $(this).toggle($(this).text().toLowerCase().indexOf(value) > -1)
         });
-      });
     });
-    </script>
+
+
+    // Expandable cell functionality
+    $('.expandable-cell').on('click', function() {
+        var cell = $(this);
+        if (cell.hasClass('expanded')) {
+            cell.removeClass('expanded').css('max-height', '3em');
+        } else {
+            cell.addClass('expanded').css('max-height', 'none');
+        }
+    });
+});
+
+
+
+</script>
 
 {% endblock %}
-
