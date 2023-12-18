@@ -19,17 +19,23 @@ def job_function():
                 emailaddresses = SucmNotifyGroup().get_notifygroup_detail(
                     cert["notify_group"]
                 )[2]
-                for email in emailaddresses.replace(" ", "").split(","):
-                    send_email(
-                        cert["common_name"] + " needs manual intervention in SUCM",
-                        cert["common_name"] + " needs to be renewed",
-                        email,
-                    )
-                    app_logger.info(
-                        "%s: Email has been sent to %s to request manual intervention.",
-                        cert["common_name"],
-                        email,
-                    )
+                cert_obj = SucmCertificate(cert_id=cert["cert_id"])
+                cert_obj.set_current_class_values_from_db()
+                if cert_obj.status != "Sent Email":
+                    for email in emailaddresses.replace(" ", "").split(","):
+                        send_email(
+                            cert["common_name"] + " needs manual intervention in SUCM",
+                            cert["common_name"] + " needs to be renewed",
+                            email,
+                        )
+                        app_logger.info(
+                            "%s: Email has been sent to %s to request manual intervention.",
+                            cert["common_name"],
+                            email,
+                        )
+                    cert_obj.status = "Sent Email"
+                    cert_obj.commit_changes_to_db()
+                    del cert_obj
             else:
                 cert_obj = SucmCertificate(cert_id=cert["cert_id"])
                 cert_obj.set_current_class_values_from_db()

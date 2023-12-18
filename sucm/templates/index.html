@@ -37,6 +37,9 @@
             transition: max-height 0.3s ease;
             word-break: break-all; /* This will break long words if necessary */
         }
+        .red-row {
+        background-color: #ffcccc !important;
+        }
 
     </style>
 
@@ -57,15 +60,16 @@
                     <th scope="col"></th>
                 </tr>
             </thead>
+            
             <tbody>
                 {% for cert in all_certs %}
-                <tr class="certificate-row">
-                    <th scope="row">{{cert["cert_id"]}}</th>
-                    <td>{{cert["common_name"]}}</td>
-                    <td class="expandable-cell">{{cert["subject_alt"]}}</td>
-                    <td>{{cert["create_date"]}}</td>
-                    <td>{{cert["expiry_date"]}}</td>
-                    <td>{{cert["cert_type"]}}</td>
+                <tr class="certificate-row {% if cert["status"] == "Sent Email" %}red-row{% endif %}">
+                    <th scope="row">{{ cert["cert_id"] }}</th>
+                    <td>{{ cert["common_name"] }}</td>
+                    <td class="expandable-cell">{{ cert["subject_alt"] }}</td>
+                    <td>{{ cert["create_date"] }}</td>
+                    <td>{{ cert["expiry_date"] }}</td>
+                    <td>{{ cert["cert_type"] }}</td>
                     <td class="table-actions">
                         <form action="{{ url_for('main.inspect_cert', cert_id=cert["cert_id"] ) }}" method="post" class="inline-form">
                             <input class="btn btn-primary" type="submit" name="{{ cert["cert_id"] }}" value="Inspect">
@@ -74,6 +78,8 @@
                 </tr>
                 {% endfor %}
             </tbody>
+            
+
         </table>
     </div>
 
@@ -98,6 +104,9 @@ $(document).ready(function(){
             cell.addClass('expanded').css('max-height', 'none');
         }
     });
+
+
+
 });
 
 
