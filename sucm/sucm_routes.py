@@ -275,7 +275,6 @@ def delete_cert(cert_id):
 
 @bp.route("/inspect_active_cert/<active_cert_id>", methods=["POST", "GET"])
 def inspect_active_cert(active_cert_id):
-    audit_logger.info("audit log test. user: %s", session.get("username"))
     details = SucmCertificate().get_active_cert_ssl_data(active_cert_id)
 
     return render_template(
