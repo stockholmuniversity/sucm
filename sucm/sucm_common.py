@@ -35,13 +35,19 @@ except TypeError as e:
 
 
 def send_email(ject, body, to, from_addr="m@se"):
-    # Create a text/plain message
-    msg = MIMEText(body)
-    msg["Subject"] = ject
-    msg["From"] = from_addr
-    msg["To"] = to
-
-    # Send the message via our own SMTP server.
-    s = smtplib.SMTP("localhost")
-    s.send_message(msg)
-    s.quit()
+    try:
+        # Create a text/plain message
+        msg = MIMEText(body)
+        msg["Subject"] = ject
+        msg["From"] = from_addr
+        msg["To"] = to
+    
+        # Send the message via our own SMTP server.
+        s = smtplib.SMTP("localhost")
+        s.send_message(msg)
+        s.quit()
+    except:
+        # this exception is broad but it is here so the automation won't fail and not update the cert.status. 
+        # otherwise it would send emails every 10 minutes to everyone in the group related to a cert that is about to expire, and is set to manual.
+        # it is considered a temporary fix until a better one comes along.
+        pass
