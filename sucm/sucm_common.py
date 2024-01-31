@@ -34,7 +34,7 @@ except TypeError as e:
     sys_logger.error(e)
 
 
-def send_email(ject, body, to, from_addr="m@se"):
+def send_email(ject, body, to, from_addr="noreply@su.se"):
     try:
         # Create a text/plain message
         msg = MIMEText(body)
