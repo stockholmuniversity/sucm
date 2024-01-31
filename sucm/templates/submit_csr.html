@@ -12,14 +12,14 @@
                 <form action="{{ url_for('main.submit_csr_response') }}" method="post" enctype="multipart/form-data">
                     <div class="mb-3">
                         <label class="form-label">Cert ID:</label>
-                        <input type="text" name="cert_id" value="{{cert_data[0]}}" class="form-control" readonly>
+                        <input type="text" name="cert_id" value="{{cert_data["cert_id"]}}" class="form-control" readonly>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Common Name:</label>
-                        <input type="text" name="common_name" value="{{cert_data[2]}}" class="form-control" readonly>
+                        <input type="text" name="common_name" value="{{cert_data["common_name"]}}" class="form-control" readonly>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label" for="freeform">Submit new CSR for {{cert_data[2]}}:</label>
+                        <label class="form-label" for="freeform">Submit new CSR for {{cert_data["common_name"]}}:</label>
                         <textarea id="freeform" name="freeform" class="form-control" rows="8" placeholder="Paste the CSR here..."></textarea>
                     </div>
                     <div class="mb-3">
