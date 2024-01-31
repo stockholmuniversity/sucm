@@ -24,7 +24,7 @@ node("agent") {
             stage("Get information")
             {
                 revision = env.rev ?: sh(script: "git log -n 1  --pretty=format:'%H'", returnStdout: true).trim()
-                tag = sh(script: "git tag --contains ${revision} | tail -1", returnStdout: true).trim()
+                tag = sh(script: "tag=\$(git tag --contains ${revision} | tail -1); if [ \"${env.branch}\" = \"\$tag\" ]; then echo \$tag; fi", returnStdout: true).trim()
             }
 
             suWithPoetryCredentials(tag: tag) {
