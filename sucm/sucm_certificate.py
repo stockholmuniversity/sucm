@@ -427,7 +427,7 @@ class SucmCertificate:
         return pem_certificates
 
     def renew_cert_with_csr(self):
-        if self.status == "New CSR":
+        if self.status == "New CSR" of self.status == "Failed to fetch CRT":
             self._fetch_csr()
 
             try:
