@@ -72,7 +72,7 @@ class SuVault(SucmSecret):
         modifiable_paths = []
         try:
             for path in paths:
-                data = {"path": path}
+                data = {"path": path + "*"}
                 response = self.client.adapter.post(
                     "/v1/sys/capabilities-self", json=data
                 )
