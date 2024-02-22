@@ -1,7 +1,6 @@
 from datetime import datetime
 
 import hvac
-import re
 from flask import g
 
 from ..sucm_db import SucmMysql
