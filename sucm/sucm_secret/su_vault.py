@@ -1,6 +1,7 @@
 from datetime import datetime
 
 import hvac
+import re
 from flask import g
 
 from ..sucm_db import SucmMysql
@@ -53,10 +54,22 @@ class SuVault(SucmSecret):
                 "GET", "v1/secret/vaulttoolsecrets?list=true"
             )["data"]["keys"]
             allpaths = []
-            environments = ["prod", "test", "dev", "edu", "lab", "ci"]
+            environments = ["prod/", "test/", "dev/", "edu/", "lab/", "ci/"]
             for servicepath in servicepaths:
+                servicepathenv = self.client.adapter.request(
+                    "GET", f"v1/secret/vaulttoolsecrets/{servicepath}?list=true"
+                )["data"]["keys"]
                 for env in environments:
-                    allpaths.append(f"secret/vaulttoolsecrets/{servicepath}{env}/ssl/")
+                    if env in servicepathenv:
+                        try:
+                            servicepathssl = self.client.adapter.request(
+                                "GET", f"v1/secret/vaulttoolsecrets/{servicepath}/{env}?list=true"
+                                )["data"]["keys"]
+                            if servicepath is not None and "ssl/" in servicepathssl:
+                                allpaths.append(f"secret/vaulttoolsecrets/{servicepath}{env}ssl/")
+                        except Exception as e:
+                            sys_logger.error(f"Failed to add ssl path to allowed path: {e}") 
+                            pass
 
             editable_paths = self.list_modifiable_paths(allpaths)
             usable_paths = [
@@ -72,11 +85,11 @@ class SuVault(SucmSecret):
         modifiable_paths = []
         try:
             for path in paths:
-                data = {"path": path + "*"}
+                data = {"path": path}
+                #data = {"path": path + "*"}
                 response = self.client.adapter.post(
                     "/v1/sys/capabilities-self", json=data
                 )
-
                 if "update" in response["data"]["capabilities"]:
                     modifiable_paths.append(path)
 
