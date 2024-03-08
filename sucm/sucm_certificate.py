@@ -254,6 +254,16 @@ class SucmCertificate:
             data_list.append(details)
         return data_list
 
+    def get_fetch_failures(self):
+        all_data = sucm_db.get_records(
+            "Certificate", "Status = 'Failed to fetch CRT'"
+        )
+        data_list = []
+        for data in all_data:
+            details = self._create_cert_dict(data)
+            data_list.append(details)
+        return data_list
+
     def get_next_cert_id(self):
         return sucm_db.get_next_available_id("Certificate")
 
@@ -417,11 +427,16 @@ class SucmCertificate:
         return pem_certificates
 
     def renew_cert_with_csr(self):
-        if self.status == "New CSR":
+        if self.status == "New CSR" of self.status == "Failed to fetch CRT":
             self._fetch_csr()
 
-            self._load_certificate_authority()
-            cert_data = self.cert_authority.fetch_cert(self.csr)
+            try:
+                self._load_certificate_authority()
+                cert_data = self.cert_authority.fetch_cert(self.csr)
+            except:
+                self.status = "Failed to fetch CRT"
+                self.commit_changes_to_db()
+                return
 
             self.crt = cert_data[0]
             self.expiry_date = cert_data[1]
