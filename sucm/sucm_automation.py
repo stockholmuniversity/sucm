@@ -8,9 +8,25 @@ from .sucm_globals import state
 from .sucm_notifygroup import SucmNotifyGroup
 from .sucm_settings import app_logger
 
+def retry_failed_fetch():
+    certs_that_failed = SucmCertificate().get_fetch_failures()
+    if certs_that_failed:
+        for cert in certs_that_failed:
+            try:
+                cert_obj = SucmCertificate(cert_id=cert["cert_id"])
+                cert_obj.set_current_class_values_from_db()
+                cert_obj.renew_cert_with_csr()
+                app_logger.info(
+                    "%s has been renewed after previous fetch failure and is now pushed to vault.",
+                    cert["common_name"],
+                )
+                del cert_obj
+            except:
+                return
 
 def job_function():
     app_logger.info("Job started!")
+    retry_failed_fetch()
     certs_to_renew = SucmCertificate().get_renewable_certs()
     certs_to_remove = SucmCertificate().get_expired_certs()
     if certs_to_renew:
