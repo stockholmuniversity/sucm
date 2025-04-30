@@ -2,15 +2,15 @@ import requests
 import sys
 import re
 import subprocess
-import tempfile
 import os
 import json
 from requests_toolbelt.multipart.encoder import MultipartEncoder
 
 if len(sys.argv) < 4:
     print("Usage:")
-    print("  python3 harica-login2fa-test-final-with-revoke.py req <TOTP-token> <domain>")
-    print("  python3 harica-login2fa-test-final-with-revoke.py revoke <TOTP-token> <domain>")
+    print("  python3 harica-login2fa-test-final-with-download.py req <TOTP-token> <domain>")
+    print("  python3 harica-login2fa-test-final-with-download.py revoke <TOTP-token> <domain>")
+    print("  python3 harica-login2fa-test-final-with-download.py download <TOTP-token> <domain>")
     sys.exit(1)
 
 command = sys.argv[1]
@@ -22,6 +22,8 @@ email = "jan.qvarnstrom@su.se"
 password = "your password"
 url_base = "https://cm.harica.gr"
 local_cert_db = "certificates.json"
+key_file_template = "{}.key"
+csr_file_template = "{}.csr"
 
 session = requests.Session()
 
@@ -80,15 +82,14 @@ def request_certificate(domain):
     org_dn = f"OrganizationId:{org_id}&C:SE&L:Stockholm&O:Stockholms universitet"
     print("Organization ID:", org_id)
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        key_path = os.path.join(tmpdir, f"key-{domain}.pem")
-        csr_path = os.path.join(tmpdir, f"csr-{domain}.pem")
+    key_path = key_file_template.format(domain)
+    csr_path = csr_file_template.format(domain)
 
-        subprocess.run(["openssl", "genrsa", "-out", key_path, "2048"], check=True)
-        subprocess.run(["openssl", "req", "-new", "-key", key_path, "-subj", f"/CN={domain}", "-out", csr_path], check=True)
+    subprocess.run(["openssl", "genrsa", "-out", key_path, "2048"], check=True)
+    subprocess.run(["openssl", "req", "-new", "-key", key_path, "-subj", f"/CN={domain}", "-out", csr_path], check=True)
 
-        with open(csr_path, "r") as f:
-            csr = f.read()
+    with open(csr_path, "r") as f:
+        csr = f.read()
 
     multipart_payload = MultipartEncoder(
         fields={
@@ -143,11 +144,11 @@ def revoke_certificate(domain):
 
     print(f"Found cert ID {cert_id} for domain {domain}")
 
-    fetch_rvt()  # Refresh RVT before revoking
+    fetch_rvt()
 
     revoke_data = {
-        "transactionId": cert_id,
-        "name": "4.9.1.1.1.1",  # Correct name field now
+        "id": cert_id,
+        "name": "4.9.1.1.1.1",
         "notes": f"Revoked via script by {email}",
         "message": ""
     }
@@ -160,6 +161,69 @@ def revoke_certificate(domain):
 
     print("RevokeCertificate status:", r.status_code)
     print(r.text)
+
+def download_certificate(domain):
+    """Download the full certificate chain and split into .pem, .crt, .key"""
+    if not os.path.exists(local_cert_db):
+        print(f"No certificates.json found.")
+        sys.exit(1)
+
+    with open(local_cert_db, "r") as f:
+        certs = json.load(f)
+
+    cert_id = None
+    for cert in certs:
+        if cert.get("domain") == domain:
+            cert_id = cert.get("id")
+            break
+
+    if not cert_id:
+        print(f"No certificate ID found for domain {domain} in certificates.json")
+        sys.exit(1)
+
+    print(f"Found cert ID {cert_id} for domain {domain}")
+    fetch_rvt()
+
+    r = session.post(
+        f"{url_base}/api/Certificate/GetCertificate",
+        json={"id": cert_id},
+        headers={"Content-Type": "application/json;charset=utf-8"}
+    )
+
+    print("GetCertificate status:", r.status_code)
+    if not r.ok:
+        print("Failed to get certificate:")
+        print(r.text)
+        sys.exit(1)
+
+    full_chain = r.text
+    pem_file = f"{domain}.pem"
+    crt_file = f"{domain}.crt"
+    key_file = key_file_template.format(domain)
+
+    # Split the full_chain to separate leaf and chain
+    cert_blocks = re.findall(
+        r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----",
+        full_chain,
+        re.DOTALL
+    )
+
+    if not cert_blocks:
+        print("No certificates found in response.")
+        sys.exit(1)
+
+    with open(pem_file, "w") as f:
+        f.write(cert_blocks[0] + "\n")  # Leaf only
+
+    with open(crt_file, "w") as f:
+        f.write("\n".join(cert_blocks) + "\n")  # Full chain
+
+    if os.path.exists(key_file):
+        print(f"Private key exists: {key_file}")
+    else:
+        print(f"Warning: Private key file {key_file} not found.")
+
+    print(f"Certificate saved as {pem_file}, full chain as {crt_file}")
 
 def save_certificate_mapping(domain, cert_id):
     """Save domain and cert ID to local JSON file."""
@@ -183,6 +247,8 @@ if command == "req":
     request_certificate(target)
 elif command == "revoke":
     revoke_certificate(target)
+elif command == "download":
+    download_certificate(target)
 else:
     print(f"Unknown command: {command}")
     sys.exit(1)
