@@ -8,9 +8,9 @@ from requests_toolbelt.multipart.encoder import MultipartEncoder
 
 if len(sys.argv) < 4:
     print("Usage:")
-    print("  python3 harica-login2fa-test-final-with-download.py req <TOTP-token> <domain>")
-    print("  python3 harica-login2fa-test-final-with-download.py revoke <TOTP-token> <domain>")
-    print("  python3 harica-login2fa-test-final-with-download.py download <TOTP-token> <domain>")
+    print("  python3 harica-login2fa-test-final.py req <TOTP-token> <domain>")
+    print("  python3 harica-login2fa-test-final.py revoke <TOTP-token> <domain>")
+    print("  python3 harica-login2fa-test-final.py download <TOTP-token> <domain>")
     sys.exit(1)
 
 command = sys.argv[1]
