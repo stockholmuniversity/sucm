@@ -1,8 +1,4 @@
-import josepy as jose
 import OpenSSL
-from acme import client, messages
-from cryptography import x509
-from cryptography.hazmat.primitives import serialization
 
 from ..sucm_settings import cfg, sys_logger
 from . import SucmCertificateAuthority
@@ -20,12 +16,11 @@ harica_eab_config = {
 
 class Harica_EAB(SucmCertificateAuthority):
     def __init__(self):
-        self.eab_directory = harica_eab_config["eab_directory"]
-        self.eab_kid = harica_eab_config["eab_kid"]
-        self.eab_hmac = harica_eab_config["eab_hmac"]
-        self.eab_user_agent = harica_eab_config["eab_user_agent"]
-        self.eab_email = harica_eab_config["eab_email"]
-        self.eab_account_pw = harica_eab_config["eab_account_pw"]
+        self.api_base_url = harica_eab_config["api_base_url"]
+        self.harica_email = harica_eab_config["harica_email"]
+        self.harica_password = harica_eab_config["harica_password"]
+        self.harica_totp_seed = harica_eab_config["harica_totp_seed"]
+
 
         with open("/local/cert-app/HARICA_EAB_account_key.pem", "rb") as key_file:
             acc_key_rsa = serialization.load_pem_private_key(
@@ -75,7 +70,8 @@ class Harica_EAB(SucmCertificateAuthority):
             cert = certs[0].public_bytes(encoding=serialization.Encoding.PEM)
             cert_pem = cert.decode("utf-8")
             sys_logger.info("Certificate fetched successfully.")
-            return [cert_pem, expiry_date, fullchain_pem]
+            cert_id_harica = None #Change to actual cert id.
+            return [cert_pem, expiry_date, fullchain_pem, cert_id_harica]
         except Exception as e:
             sys_logger.error(f"Error fetching certificate: {e}")
             return []
