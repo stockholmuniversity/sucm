@@ -28,7 +28,6 @@ csr_file_template = "{}.csr"
 session = requests.Session()
 
 def fetch_rvt():
-    """Fetch and update the RequestVerificationToken."""
     r = session.get(url_base)
     match = re.search(r'<input name="__RequestVerificationToken".*value="([^"]+)"', r.text)
     if not match:
@@ -40,7 +39,6 @@ def fetch_rvt():
     return rvt
 
 def login(token):
-    """Login with email, password, and TOTP token."""
     fetch_rvt()
     login_data = {
         "email": email,
@@ -62,7 +60,6 @@ def login(token):
     fetch_rvt()
 
 def request_certificate(domain):
-    """Request a new certificate and save its ID locally."""
     r = session.post(f"{url_base}/api/User/GetCurrentUser")
     print("GetCurrentUser status:", r.status_code)
 
@@ -124,7 +121,6 @@ def request_certificate(domain):
             print(e)
 
 def revoke_certificate(domain):
-    """Revoke an existing certificate based on domain."""
     if not os.path.exists(local_cert_db):
         print(f"No certificates.json found. Cannot revoke.")
         sys.exit(1)
@@ -132,18 +128,13 @@ def revoke_certificate(domain):
     with open(local_cert_db, "r") as f:
         certs = json.load(f)
 
-    cert_id = None
-    for cert in certs:
-        if cert.get("domain") == domain:
-            cert_id = cert.get("id")
-            break
+    cert_id = next((c["id"] for c in certs if c.get("domain") == domain), None)
 
     if not cert_id:
         print(f"No certificate ID found for domain {domain} in certificates.json")
         sys.exit(1)
 
     print(f"Found cert ID {cert_id} for domain {domain}")
-
     fetch_rvt()
 
     revoke_data = {
@@ -163,7 +154,6 @@ def revoke_certificate(domain):
     print(r.text)
 
 def download_certificate(domain):
-    """Download the full certificate chain and split into .pem, .crt, .key"""
     if not os.path.exists(local_cert_db):
         print(f"No certificates.json found.")
         sys.exit(1)
@@ -171,11 +161,7 @@ def download_certificate(domain):
     with open(local_cert_db, "r") as f:
         certs = json.load(f)
 
-    cert_id = None
-    for cert in certs:
-        if cert.get("domain") == domain:
-            cert_id = cert.get("id")
-            break
+    cert_id = next((c["id"] for c in certs if c.get("domain") == domain), None)
 
     if not cert_id:
         print(f"No certificate ID found for domain {domain} in certificates.json")
@@ -196,14 +182,10 @@ def download_certificate(domain):
         print(r.text)
         sys.exit(1)
 
-    full_chain = r.text
-    pem_file = f"{domain}.pem"
-    crt_file = f"{domain}.crt"
-    key_file = key_file_template.format(domain)
+    full_chain = r.text.encode().decode('unicode_escape')  # <-- unescape \n
 
-    # Split the full_chain to separate leaf and chain
     cert_blocks = re.findall(
-        r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----",
+        r"(-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)",
         full_chain,
         re.DOTALL
     )
@@ -212,21 +194,41 @@ def download_certificate(domain):
         print("No certificates found in response.")
         sys.exit(1)
 
+    pem_file = f"{domain}.pem"
+    crt_file = f"{domain}.crt"
+    key_file = key_file_template.format(domain)
+
     with open(pem_file, "w") as f:
-        f.write(cert_blocks[0] + "\n")  # Leaf only
+        f.write(cert_blocks[0].strip() + "\n")
 
     with open(crt_file, "w") as f:
-        f.write("\n".join(cert_blocks) + "\n")  # Full chain
+        f.write("\n".join(block.strip() for block in cert_blocks) + "\n")
+
+    print(f"Saved leaf certificate to {pem_file}")
+    print(f"Saved full chain to {crt_file}")
 
     if os.path.exists(key_file):
         print(f"Private key exists: {key_file}")
+        check_key_match(pem_file, key_file)
     else:
-        print(f"Warning: Private key file {key_file} not found.")
+        print(f"❗ Warning: Private key file {key_file} not found.")
 
-    print(f"Certificate saved as {pem_file}, full chain as {crt_file}")
+def check_key_match(cert_path, key_path):
+    try:
+        mod_cert = subprocess.check_output(
+            ["openssl", "x509", "-noout", "-modulus", "-in", cert_path]
+        )
+        mod_key = subprocess.check_output(
+            ["openssl", "rsa", "-noout", "-modulus", "-in", key_path]
+        )
+        if mod_cert.strip() == mod_key.strip():
+            print("✅ Certificate and private key match.")
+        else:
+            print("❌ Certificate and private key do NOT match!")
+    except subprocess.CalledProcessError as e:
+        print("Error checking modulus match:", e)
 
 def save_certificate_mapping(domain, cert_id):
-    """Save domain and cert ID to local JSON file."""
     certs = []
     if os.path.exists(local_cert_db):
         with open(local_cert_db, "r") as f:
