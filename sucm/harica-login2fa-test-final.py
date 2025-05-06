@@ -138,10 +138,10 @@ def revoke_certificate(domain):
     fetch_rvt()
 
     revoke_data = {
-        "id": cert_id,
+        "transactionId": cert_id,
         "name": "4.9.1.1.1.1",
-        "notes": f"Revoked via script by {email}",
-        "message": ""
+        "notes": f"Revoked via SUCM for {domain}",
+        "message": "",
     }
 
     r = session.post(
