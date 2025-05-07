@@ -65,7 +65,7 @@ class Sectigo_EAB(SucmCertificateAuthority):
             self.client_acme.net.account = regr
             regr = self.client_acme.query_registration(regr)
 
-    def fetch_cert(self, csr_pem):
+    def fetch_cert(self, csr_pem, common_name=None):
         try:
             orderr = self.client_acme.new_order(csr_pem)
             response = self.client_acme.poll_and_finalize(orderr)
@@ -80,7 +80,7 @@ class Sectigo_EAB(SucmCertificateAuthority):
             sys_logger.error(f"Error fetching certificate: {e}")
             return []
 
-    def revoke_cert(self, fullchain_pem):
+    def revoke_cert(self, fullchain_pem, common_name=None):
         try:
             fullchain_com = jose.ComparableX509(
                 OpenSSL.crypto.load_certificate(

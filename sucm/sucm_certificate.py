@@ -424,7 +424,8 @@ class SucmCertificate:
             self._fetch_csr()
 
             self._load_certificate_authority()
-            cert_data = self.cert_authority.fetch_cert(self.csr)
+            cert_data = self.cert_authority.fetch_cert(self.csr,
+                    self.common_name)
             self.cert_id_harica = cert_data["cert_id_harica"]
             self.crt = cert_data[0]
             self.expiry_date = cert_data[1]
