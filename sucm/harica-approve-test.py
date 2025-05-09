@@ -5,7 +5,7 @@ from requests_toolbelt.multipart.encoder import MultipartEncoder
 
 # Configuration
 email = "cert@it.su.se"
-password = "eiPhu8ei gaa4Quu0 ebei3OoL"
+password = "your password"
 url_base = "https://cm.harica.gr"
 
 session = requests.Session()
