@@ -17,7 +17,7 @@ from . import SucmCertificateAuthority
 
 CA_PLUGIN_NAME = "HARICA_EAB"
 harica_eab_config = {
-    "harica_username": cfg.get(CA_PLUGIN_NAME, "harica_username"),
+    "harica_email": cfg.get(CA_PLUGIN_NAME, "harica_email"),
     "harica_password": cfg.get(CA_PLUGIN_NAME, "harica_password"),
     "harica_totp_seed": cfg.get(CA_PLUGIN_NAME, "harica_totp_seed"),
     "harica_base_url": cfg.get(CA_PLUGIN_NAME, "harica_base_url"),
@@ -26,14 +26,14 @@ harica_eab_config = {
 
 class Harica_EAB(SucmCertificateAuthority):
     def __init__(self):
-        self.api_base_url = harica_eab_config["api_base_url"]
+        self.harica_base_url = harica_eab_config["harica_base_url"]
         self.harica_email = harica_eab_config["harica_email"]
         self.harica_password = harica_eab_config["harica_password"]
         self.harica_totp_seed = harica_eab_config["harica_totp_seed"]
         self.session = requests.Session()
 
     def fetch_rvt(self):
-        r = self.session.get(self.api_base_url)
+        r = self.session.get(self.harica_base_url)
         match = re.search(
             r'<input name="__RequestVerificationToken".*value="([^"]+)"', r.text
         )
@@ -50,7 +50,7 @@ class Harica_EAB(SucmCertificateAuthority):
         self.fetch_rvt()
         login_data = {"email": self.harica_email, "password": self.harica_password, "token": token}
         self.session.headers.update({"Content-Type": "application/json;charset=utf-8"})
-        r = self.session.post(f"{self.api_base_url}/api/User/Login2FA", json=login_data)
+        r = self.session.post(f"{self.harica_base_url}/api/User/Login2FA", json=login_data)
 
         if (
             not r.ok
@@ -72,12 +72,12 @@ class Harica_EAB(SucmCertificateAuthority):
         self.fetch_rvt()
 
     def request_certificate(self, common_name, csr):
-        r = self.session.post(f"{self.api_base_url}/api/User/GetCurrentUser")
+        r = self.session.post(f"{self.harica_base_url}/api/User/GetCurrentUser")
         print("GetCurrentUser status:", r.status_code)
 
         domain_obj = {"isWildcard": False, "domain": common_name, "includeWWW": False}
         r = self.session.post(
-            f"{self.api_base_url}/api/ServerCertificate/CheckMachingOrganization",
+            f"{self.harica_base_url}/api/ServerCertificate/CheckMachingOrganization",
             json=[domain_obj],
         )
         if not r.ok:
@@ -131,7 +131,7 @@ class Harica_EAB(SucmCertificateAuthority):
 
         self.session.headers["Content-Type"] = multipart_payload.content_type
         r = self.session.post(
-            f"{self.api_base_url}/api/ServerCertificate/RequestServerCertificate",
+            f"{self.harica_base_url}/api/ServerCertificate/RequestServerCertificate",
             data=multipart_payload,
         )
 
@@ -172,7 +172,7 @@ class Harica_EAB(SucmCertificateAuthority):
         }
 
         r = self.session.post(
-            f"{self.api_base_url}/api/Certificate/RevokeCertificate",
+            f"{self.harica_base_url}/api/Certificate/RevokeCertificate",
             json=revoke_data,
             headers={"Content-Type": "application/json;charset=utf-8"},
         )
@@ -198,7 +198,7 @@ class Harica_EAB(SucmCertificateAuthority):
         self.fetch_rvt()
 
         r = self.session.post(
-            f"{self.api_base_url}/api/Certificate/GetCertificate",
+            f"{self.harica_base_url}/api/Certificate/GetCertificate",
             json={"id": cert_id},
             headers={"Content-Type": "application/json;charset=utf-8"},
         )
