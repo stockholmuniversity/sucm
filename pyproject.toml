@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "sucm"
-version = "0.9.7"
+version = "0.9.8"
 description = "SSL certificate manager with web GUI"
 authors = ["Rasmus Thorslund <rasmus.thorslund@su.se>"]
 readme = "README.md"
@@ -20,6 +20,7 @@ flask-SSO = "*"
 josepy = "*"
 pyopenssl = "*"
 apscheduler = "*"
+requests_toolbelt = "*"
 
 [tool.poetry.dev-dependencies]
 isort = "^5.12.0"
