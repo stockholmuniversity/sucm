@@ -314,10 +314,11 @@ class Harica_EAB(SucmCertificateAuthority):
     def fetch_cert(self, csr_pem, common_name):
         try:
             self.login()
-            cert_id_harica = self.request_certificate(common_name, csr_pem)
-            self.validate_certificate_request(cert_id)
+            cert_id = self.request_certificate(common_name, csr_pem)
+            print(f"Certificate requested. cert_id returned is {cert_id}")
+            #self.validate_certificate_request(cert_id)
             #save_certificate_mapping(common_name, cert_id)
-            pass
+            sys.exit(1)
             return [cert_pem, expiry_date, fullchain_pem, cert_id_harica]
         except Exception as e:
             sys_logger.error(f"Error fetching certificate: {e}")
