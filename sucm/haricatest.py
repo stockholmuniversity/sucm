@@ -1,9 +1,9 @@
 #!/usr/bin/python3
 
-from getpass import getpass
+# from getpass import getpass
 import os
 import re
-from pprint import pprint
+# from pprint import pprint
 import json
 import requests
 
