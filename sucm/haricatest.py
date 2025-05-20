@@ -1,10 +1,11 @@
 #!/usr/bin/python3
 
 # from getpass import getpass
-import os
-import re
 # from pprint import pprint
 import json
+import os
+import re
+
 import requests
 
 tfa = ""

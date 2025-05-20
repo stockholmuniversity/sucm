@@ -1,11 +1,13 @@
-import requests
-import json
-import getpass
 import base64
-import time
+import getpass
 import hashlib
 import hmac
+import json
 import re
+import time
+
+import requests
+
 
 def get_rvt(session, base_url):
     res = session.get(base_url)

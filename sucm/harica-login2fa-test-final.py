@@ -1,9 +1,10 @@
-import requests
-import sys
+import json
+import os
 import re
 import subprocess
-import os
-import json
+import sys
+
+import requests
 from requests_toolbelt.multipart.encoder import MultipartEncoder
 
 if len(sys.argv) < 4:

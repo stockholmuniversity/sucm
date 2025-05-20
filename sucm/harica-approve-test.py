@@ -1,6 +1,7 @@
-import requests
-import sys
 import re
+import sys
+
+import requests
 from requests_toolbelt.multipart.encoder import MultipartEncoder
 
 # Configuration

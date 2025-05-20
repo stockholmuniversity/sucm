@@ -1,16 +1,17 @@
-import requests
-import sys
-import re
-import subprocess
-import os
-import json
-import hmac
-import hashlib
-import time
-import struct
 import base64
+import hashlib
+import hmac
+import json
+import os
+import re
+import struct
+import subprocess
+import sys
+import time
 
+import requests
 from requests_toolbelt.multipart.encoder import MultipartEncoder
+
 from ..sucm_settings import cfg, sys_logger
 from . import SucmCertificateAuthority
 
