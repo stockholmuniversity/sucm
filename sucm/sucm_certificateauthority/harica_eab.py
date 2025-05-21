@@ -160,7 +160,7 @@ class Harica_EAB(SucmCertificateAuthority):
             "filterPostDTOs": []
         }
 
-        r = session.post(f"{url_base}/api/OrganizationValidatorSSL/GetSSLReviewableTransactions", json=payload)
+        r = self.session.post(f"{self.api_base_url}/api/OrganizationValidatorSSL/GetSSLReviewableTransactions", json=payload)
         if not r.ok:
             print(" Failed to fetch reviewable transactions.")
             sys.exit(1)
@@ -195,10 +195,10 @@ class Harica_EAB(SucmCertificateAuthority):
                 }
 
                 m = MultipartEncoder(fields=fields)
-                session.headers["Content-Type"] = m.content_type
+                self.session.headers["Content-Type"] = m.content_type
 
-                r = session.post(
-                    f"{url_base}/api/OrganizationValidatorSSL/UpdateReviews",
+                r = self.session.post(
+                    f"{self.api_base_url}/api/OrganizationValidatorSSL/UpdateReviews",
                     data=m
                 )
 
