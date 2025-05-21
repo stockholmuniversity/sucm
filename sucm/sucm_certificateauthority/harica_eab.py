@@ -17,23 +17,29 @@ from . import SucmCertificateAuthority
 
 CA_PLUGIN_NAME = "HARICA_EAB"
 harica_eab_config = {
-    "harica_email": cfg.get(CA_PLUGIN_NAME, "harica_email"),
-    "harica_password": cfg.get(CA_PLUGIN_NAME, "harica_password"),
-    "harica_totp_seed": cfg.get(CA_PLUGIN_NAME, "harica_totp_seed"),
-    "harica_base_url": cfg.get(CA_PLUGIN_NAME, "harica_base_url"),
+    "api_base_url": cfg.get(CA_PLUGIN_NAME, "api_base_url"),
+    "order_email": cfg.get(CA_PLUGIN_NAME, "order_email"),
+    "order_password": cfg.get(CA_PLUGIN_NAME, "order_password"),
+    "order_totp_seed": cfg.get(CA_PLUGIN_NAME, "order_totp_seed"),
+    "approve_email": cfg.get(CA_PLUGIN_NAME, "approve_email"),
+    "approve_password": cfg.get(CA_PLUGIN_NAME, "approve_password"),
+    "approve_totp_seed": cfg.get(CA_PLUGIN_NAME, "approve_totp_seed"),
 }
 
 
 class Harica_EAB(SucmCertificateAuthority):
     def __init__(self):
-        self.harica_base_url = harica_eab_config["harica_base_url"]
-        self.harica_email = harica_eab_config["harica_email"]
-        self.harica_password = harica_eab_config["harica_password"]
-        self.harica_totp_seed = harica_eab_config["harica_totp_seed"]
+        self.api_base_url = harica_eab_config["api_base_url"]
+        self.order_email = harica_eab_config["order_email"]
+        self.order_password = harica_eab_config["order_password"]
+        self.order_totp_seed = harica_eab_config["order_totp_seed"]
+        self.approve_email = harica_eab_config["approve_email"]
+        self.approve_password = harica_eab_config["approve_password"]
+        self.approve_totp_seed = harica_eab_config["approve_totp_seed"]
         self.session = requests.Session()
 
     def fetch_rvt(self):
-        r = self.session.get(self.harica_base_url)
+        r = self.session.get(self.api_base_url)
         match = re.search(
             r'<input name="__RequestVerificationToken".*value="([^"]+)"', r.text
         )
@@ -45,12 +51,12 @@ class Harica_EAB(SucmCertificateAuthority):
         print("RequestVerificationToken updated.")
         return rvt
 
-    def login(self):
-        token = self.generate_totp()
+    def login(self, email, password, totp_seed):
+        token = self.generate_totp(totp_seed)
         self.fetch_rvt()
-        login_data = {"email": self.harica_email, "password": self.harica_password, "token": token}
+        login_data = {"email": email, "password": password, "token": token}
         self.session.headers.update({"Content-Type": "application/json;charset=utf-8"})
-        r = self.session.post(f"{self.harica_base_url}/api/User/Login2FA", json=login_data)
+        r = self.session.post(f"{self.api_base_url}/api/User/Login2FA", json=login_data)
 
         if (
             not r.ok
@@ -72,12 +78,12 @@ class Harica_EAB(SucmCertificateAuthority):
         self.fetch_rvt()
 
     def request_certificate(self, common_name, csr):
-        r = self.session.post(f"{self.harica_base_url}/api/User/GetCurrentUser")
+        r = self.session.post(f"{self.api_base_url}/api/User/GetCurrentUser")
         print("GetCurrentUser status:", r.status_code)
 
         domain_obj = {"isWildcard": False, "domain": common_name, "includeWWW": False}
         r = self.session.post(
-            f"{self.harica_base_url}/api/ServerCertificate/CheckMachingOrganization",
+            f"{self.api_base_url}/api/ServerCertificate/CheckMachingOrganization",
             json=[domain_obj],
         )
         if not r.ok:
@@ -131,7 +137,7 @@ class Harica_EAB(SucmCertificateAuthority):
 
         self.session.headers["Content-Type"] = multipart_payload.content_type
         r = self.session.post(
-            f"{self.harica_base_url}/api/ServerCertificate/RequestServerCertificate",
+            f"{self.api_base_url}/api/ServerCertificate/RequestServerCertificate",
             data=multipart_payload,
         )
 
@@ -172,7 +178,7 @@ class Harica_EAB(SucmCertificateAuthority):
         }
 
         r = self.session.post(
-            f"{self.harica_base_url}/api/Certificate/RevokeCertificate",
+            f"{self.api_base_url}/api/Certificate/RevokeCertificate",
             json=revoke_data,
             headers={"Content-Type": "application/json;charset=utf-8"},
         )
@@ -198,7 +204,7 @@ class Harica_EAB(SucmCertificateAuthority):
         self.fetch_rvt()
 
         r = self.session.post(
-            f"{self.harica_base_url}/api/Certificate/GetCertificate",
+            f"{self.api_base_url}/api/Certificate/GetCertificate",
             json={"id": cert_id},
             headers={"Content-Type": "application/json;charset=utf-8"},
         )
@@ -268,7 +274,7 @@ class Harica_EAB(SucmCertificateAuthority):
 
         with open(local_cert_db, "w") as f:
             json.dump(certs, f, indent=2)
-    def generate_totp(self, digits=6, time_step=30, t0=0, digest_method=hashlib.sha1):
+    def generate_totp(self, totp_seed, digits=6, time_step=30, t0=0, digest_method=hashlib.sha1):
         """
         Generates a TOTP code.
         :param secret: The TOTP seed as a base32 encoded string (without spaces).
@@ -280,8 +286,8 @@ class Harica_EAB(SucmCertificateAuthority):
         """
         try:
             # Decode the base32 secret (pads if necessary)
-            key = base64.b32decode(self.harica_totp_seed.upper() + '=' * ((8 -
-                len(self.harica_totp_seed) % 8) % 8))
+            key = base64.b32decode(totp_seed.upper() + '=' * ((8 -
+                len(totp_seed) % 8) % 8))
         except Exception as e:
             raise ValueError("Invalid base32 encoded secret") from e
         # Calculate the number of time steps since t0
@@ -313,7 +319,7 @@ class Harica_EAB(SucmCertificateAuthority):
 
     def fetch_cert(self, csr_pem, common_name):
         try:
-            self.login()
+            self.login(self.order_email, self.order_password, self.order_totp_seed)
             cert_id = self.request_certificate(common_name, csr_pem)
             print(f"Certificate requested. cert_id returned is {cert_id}")
             #self.validate_certificate_request(cert_id)
