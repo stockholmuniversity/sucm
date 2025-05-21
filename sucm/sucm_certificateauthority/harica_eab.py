@@ -153,6 +153,67 @@ class Harica_EAB(SucmCertificateAuthority):
                 print(e)
                 return None
 
+    def approve_certificate_request(self, cert_id):
+        payload = {
+            "startIndex": 0,
+            "status": "Pending",
+            "filterPostDTOs": []
+        }
+
+        r = session.post(f"{url_base}/api/OrganizationValidatorSSL/GetSSLReviewableTransactions", json=payload)
+        if not r.ok:
+            print(" Failed to fetch reviewable transactions.")
+            sys.exit(1)
+
+        transactions = r.json()
+        tx = next((t for t in transactions if t.get("transactionId") == cert_id), None)
+        if not tx:
+            print(f" Transaction ID {cert_id} not found.")
+            sys.exit(1)
+
+        print(f"\n Reviews for transaction {cert_id}:\n")
+        reviews = tx.get("reviewGetDTOs", [])
+        if not reviews:
+            print(" No reviews found.")
+            sys.exit(1)
+
+        approved_any = False
+        for idx, review in enumerate(reviews, start=1):
+            reviewed = review.get("isReviewed")
+            rid = review.get("reviewId")
+            rval = review.get("reviewValue")
+            status = " already approved" if reviewed else " will approve"
+            print(f"   - Review {idx}: id={rid} value={rval}  {status}")
+
+            if not reviewed and rid and rval:
+                fields = {
+                    "reviewId": rid,
+                    "isValid": "true",
+                    "informApplicant": "true",
+                    "reviewMessage": "Approved via script",
+                    "reviewValue": rval
+                }
+
+                m = MultipartEncoder(fields=fields)
+                session.headers["Content-Type"] = m.content_type
+
+                r = session.post(
+                    f"{url_base}/api/OrganizationValidatorSSL/UpdateReviews",
+                    data=m
+                )
+
+                if r.ok:
+                    print(f"      Approved review {rid}")
+                    approved_any = True
+                else:
+                    print(f"      Failed to approve review {rid}: {r.status_code}")
+                    print("     Body:", r.text)
+
+        if approved_any:
+            print(f"\n Transaction {cert_id} fully approved.")
+        else:
+            print("\n No reviews were approved (maybe already approved?).")
+
     def revoke_certificate(self, common_name):
         if not os.path.exists(local_cert_db):
             print(f"No certificates.json found. Cannot revoke.")
@@ -314,15 +375,13 @@ class Harica_EAB(SucmCertificateAuthority):
         #    code = generate_totp(self.harica_totp_seed)
         #    print("Your TOTP code is:", code)
 
-    def validate_certificate_request(self, cert_id):
-        pass
-
     def fetch_cert(self, csr_pem, common_name):
         try:
             self.login(self.order_email, self.order_password, self.order_totp_seed)
             cert_id = self.request_certificate(common_name, csr_pem)
             print(f"Certificate requested. cert_id returned is {cert_id}")
-            #self.validate_certificate_request(cert_id)
+            self.login(self.approve_email, self.approve_password, self.approve_totp_seed)
+            self.approve_certificate_request(cert_id)
             #save_certificate_mapping(common_name, cert_id)
             sys.exit(1)
             return [cert_pem, expiry_date, fullchain_pem, cert_id_harica]
