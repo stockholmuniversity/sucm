@@ -288,7 +288,7 @@ class Harica_EAB(SucmCertificateAuthority):
 
     return [leaf_cert_pem, expiry_date, full_chain_pem, cert_id]
 
-    
+
     def generate_totp(self, totp_seed, digits=6, time_step=30, t0=0, digest_method=hashlib.sha1):
         """
         Generates a TOTP code.
