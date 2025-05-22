@@ -249,7 +249,7 @@ class Harica_EAB(SucmCertificateAuthority):
         print("RevokeCertificate status:", r.status_code)
         print(r.text)
 
-    def download_certificate(cert_id: str, common_name: str):
+    def download_certificate(self, cert_id: str, common_name: str):
         """
         Downloads the certificate for a given cert_id from HARICA,
         verifies it against the private key, and returns SUCM-compatible output.
