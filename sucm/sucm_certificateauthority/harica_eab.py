@@ -8,11 +8,11 @@ import struct
 import subprocess
 import sys
 import time
-import requests
+from datetime import datetime
 
+import requests
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
-from datetime import datetime
 from requests_toolbelt.multipart.encoder import MultipartEncoder
 
 from ..sucm_settings import cfg, sys_logger
