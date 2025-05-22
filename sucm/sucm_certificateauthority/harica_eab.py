@@ -247,94 +247,48 @@ class Harica_EAB(SucmCertificateAuthority):
         print("RevokeCertificate status:", r.status_code)
         print(r.text)
 
-    def download_certificate(self, common_name):
-        if not os.path.exists(local_cert_db):
-            print(f"No certificates.json found.")
-            sys.exit(1)
+    def download_certificate(cert_id: str, domain: str):
+        """
+        Downloads the certificate for a given cert_id from HARICA,
+        verifies it against the private key, and returns SUCM-compatible output.
 
-        with open(local_cert_db, "r") as f:
-            certs = json.load(f)
+        Returns:
+            list: [leaf_cert_pem (str), expiry_date (datetime),
+                   full_chain_pem (str), cert_id (str)]
+        """
+    fetch_rvt()
 
-        cert_id = next((c["id"] for c in certs if c.get("domain") == common_name), None)
+    r = session.post(
+        f"{url_base}/api/Certificate/GetCertificate",
+        json={"id": cert_id},
+        headers={"Content-Type": "application/json;charset=utf-8"}
+    )
 
-        if not cert_id:
-            print(f"No certificate ID found for domain {common_name} in certificates.json")
-            sys.exit(1)
+    print("GetCertificate status:", r.status_code)
+    if not r.ok:
+        raise RuntimeError(f"Failed to get certificate: {r.text}")
 
-        print(f"Found cert ID {cert_id} for domain {common_name}")
-        self.fetch_rvt()
+    full_chain = r.text.encode().decode('unicode_escape')
 
-        r = self.session.post(
-            f"{self.api_base_url}/api/Certificate/GetCertificate",
-            json={"id": cert_id},
-            headers={"Content-Type": "application/json;charset=utf-8"},
-        )
+    cert_blocks = re.findall(
+        r"(-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)",
+        full_chain,
+        re.DOTALL
+    )
 
-        print("GetCertificate status:", r.status_code)
-        if not r.ok:
-            print("Failed to get certificate:")
-            print(r.text)
-            sys.exit(1)
+    if not cert_blocks:
+        raise ValueError("No certificates found in HARICA response.")
 
-        full_chain = r.text.encode().decode("unicode_escape")  # <-- unescape \n
+    leaf_cert_pem = cert_blocks[0].strip() + "\n"
+    full_chain_pem = "\n".join(block.strip() for block in cert_blocks) + "\n"
 
-        cert_blocks = re.findall(
-            r"(-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)",
-            full_chain,
-            re.DOTALL,
-        )
+    # Parse expiration date from leaf certificate
+    cert_obj = x509.load_pem_x509_certificate(leaf_cert_pem.encode(), default_backend())
+    expiry_date = cert_obj.not_valid_after
 
-        if not cert_blocks:
-            print("No certificates found in response.")
-            sys.exit(1)
+    return [leaf_cert_pem, expiry_date, full_chain_pem, cert_id]
 
-#        pem_file = f"{common_name}.pem"
-#        crt_file = f"{common_name}.crt"
-#        key_file = key_file_template.format(common_name)
-#
-#        with open(pem_file, "w") as f:
-#            f.write(cert_blocks[0].strip() + "\n")
-#
-#        with open(crt_file, "w") as f:
-#            f.write("\n".join(block.strip() for block in cert_blocks) + "\n")
-#
-#        print(f"Saved leaf certificate to {pem_file}")
-#        print(f"Saved full chain to {crt_file}")
-#
-#        if os.path.exists(key_file):
-#            print(f"Private key exists: {key_file}")
-#            #check_key_match(pem_file, key_file)
-#        else:
-#            print(f"Warning: Private key file {key_file} not found.")
-#
-#    def check_key_match(self, cert_path, key_path):
-#        try:
-#            mod_cert = subprocess.check_output(
-#                ["openssl", "x509", "-noout", "-modulus", "-in", cert_path]
-#            )
-#            mod_key = subprocess.check_output(
-#                ["openssl", "rsa", "-noout", "-modulus", "-in", key_path]
-#            )
-#            if mod_cert.strip() == mod_key.strip():
-#                print("Certificate and private key match.")
-#            else:
-#                print("Certificate and private key do NOT match!")
-#        except subprocess.CalledProcessError as e:
-#            print("Error checking modulus match:", e)
-
-    def save_certificate_mapping(self, common_name, cert_id):
-        certs = []
-        if os.path.exists(local_cert_db):
-            with open(local_cert_db, "r") as f:
-                try:
-                    certs = json.load(f)
-                except json.JSONDecodeError:
-                    pass
-
-        certs.append({"domain": common_name, "id": cert_id})
-
-        with open(local_cert_db, "w") as f:
-            json.dump(certs, f, indent=2)
+    
     def generate_totp(self, totp_seed, digits=6, time_step=30, t0=0, digest_method=hashlib.sha1):
         """
         Generates a TOTP code.
