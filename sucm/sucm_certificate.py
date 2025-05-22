@@ -42,7 +42,6 @@ class SucmCertificate:
         self.notify_group = cert_conf["notify_group"]
         self.status = cert_conf["status"]
         self.secret_path = cert_conf["secret_path"]
-        self.cert_id_harica = None
 
         # Certificate Authority
         self.cert_authority = None
@@ -88,8 +87,7 @@ class SucmCertificate:
             "secret_path": 10,
             "notify_group": 11,
             "create_date": 12,
-            "expiry_date": 13,
-            "cert_id_harica": 14
+            "expiry_date": 13
         }
 
         for attr, index in attrs.items():
@@ -286,8 +284,7 @@ class SucmCertificate:
             "Secret_Path": self.secret_path,
             "Notify_Group_Id": self.notify_group,
             "Create_Date": self.create_date,
-            "Expiry_Date": self.expiry_date,
-            "Cert_Id_Harica": self.cert_id_harica
+            "Expiry_Date": self.expiry_date
         }
         sucm_db.add_update_record("Certificate", cert_data)
 
@@ -426,7 +423,6 @@ class SucmCertificate:
             self._load_certificate_authority()
             cert_data = self.cert_authority.fetch_cert(self.csr,
                     self.common_name)
-            self.cert_id_harica = cert_data["cert_id_harica"]
             self.crt = cert_data[0]
             self.expiry_date = cert_data[1]
             self.fullchain = cert_data[2]
