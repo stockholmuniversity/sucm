@@ -8,8 +8,10 @@ import struct
 import subprocess
 import sys
 import time
-
 import requests
+
+from cryptography import x509
+from cryptography.hazmat.backends import default_backend
 from requests_toolbelt.multipart.encoder import MultipartEncoder
 
 from ..sucm_settings import cfg, sys_logger
@@ -247,7 +249,7 @@ class Harica_EAB(SucmCertificateAuthority):
         print("RevokeCertificate status:", r.status_code)
         print(r.text)
 
-    def download_certificate(cert_id: str, domain: str):
+    def download_certificate(cert_id: str, common_name: str):
         """
         Downloads the certificate for a given cert_id from HARICA,
         verifies it against the private key, and returns SUCM-compatible output.
@@ -256,37 +258,36 @@ class Harica_EAB(SucmCertificateAuthority):
             list: [leaf_cert_pem (str), expiry_date (datetime),
                    full_chain_pem (str), cert_id (str)]
         """
-    fetch_rvt()
+        self.fetch_rvt()
 
-    r = session.post(
-        f"{url_base}/api/Certificate/GetCertificate",
-        json={"id": cert_id},
-        headers={"Content-Type": "application/json;charset=utf-8"}
-    )
+        r = self.session.post(
+            f"{self.api_base_url}/api/Certificate/GetCertificate",
+            json={"id": cert_id},
+            headers={"Content-Type": "application/json;charset=utf-8"}
+        )
 
-    print("GetCertificate status:", r.status_code)
-    if not r.ok:
-        raise RuntimeError(f"Failed to get certificate: {r.text}")
+        print("GetCertificate status:", r.status_code)
+        if not r.ok:
+            raise RuntimeError(f"Failed to get certificate: {r.text}")
 
-    full_chain = r.text.encode().decode('unicode_escape')
+        full_chain = r.text.encode().decode('unicode_escape')
 
-    cert_blocks = re.findall(
-        r"(-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)",
-        full_chain,
-        re.DOTALL
-    )
+        cert_blocks = re.findall(
+            r"(-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)",
+            full_chain,
+            re.DOTALL
+        )
 
-    if not cert_blocks:
-        raise ValueError("No certificates found in HARICA response.")
+        if not cert_blocks:
+            raise ValueError("No certificates found in HARICA response.")
 
-    leaf_cert_pem = cert_blocks[0].strip() + "\n"
-    full_chain_pem = "\n".join(block.strip() for block in cert_blocks) + "\n"
+        leaf_cert_pem = cert_blocks[0].strip() + "\n"
+        full_chain_pem = "\n".join(block.strip() for block in cert_blocks) + "\n"
 
-    # Parse expiration date from leaf certificate
-    cert_obj = x509.load_pem_x509_certificate(leaf_cert_pem.encode(), default_backend())
-    expiry_date = cert_obj.not_valid_after
-
-    return [leaf_cert_pem, expiry_date, full_chain_pem, cert_id]
+        # Parse expiration date from leaf certificate
+        cert_obj = x509.load_pem_x509_certificate(leaf_cert_pem.encode(), default_backend())
+        expiry_date = cert_obj.not_valid_after
+        return [leaf_cert_pem, expiry_date, full_chain_pem, cert_id]
 
 
     def generate_totp(self, totp_seed, digits=6, time_step=30, t0=0, digest_method=hashlib.sha1):
@@ -336,9 +337,11 @@ class Harica_EAB(SucmCertificateAuthority):
             print(f"Certificate requested. cert_id returned is {cert_id}")
             self.login(self.approve_email, self.approve_password, self.approve_totp_seed)
             self.approve_certificate_request(cert_id)
-            #save_certificate_mapping(common_name, cert_id)
+            self.login(self.order_email, self.order_password, self.order_totp_seed)
+            certs = self.download_certificate(cert_id, common_name)
+            print(certs)
             sys.exit(1)
-            return [cert_pem, expiry_date, fullchain_pem, cert_id_harica]
+            return certs
         except Exception as e:
             sys_logger.error(f"Error fetching certificate: {e}")
             return []
