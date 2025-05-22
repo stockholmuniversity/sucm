@@ -12,6 +12,7 @@ import requests
 
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
+from datetime import datetime
 from requests_toolbelt.multipart.encoder import MultipartEncoder
 
 from ..sucm_settings import cfg, sys_logger
@@ -286,8 +287,13 @@ class Harica_EAB(SucmCertificateAuthority):
 
         # Parse expiration date from leaf certificate
         cert_obj = x509.load_pem_x509_certificate(leaf_cert_pem.encode(), default_backend())
-        expiry_date = cert_obj.not_valid_after
-        return [leaf_cert_pem, expiry_date, full_chain_pem, cert_id]
+        expiry_date = datetime(cert_obj.not_valid_after)
+        print(f"Expiry date looks like: {expiry_date}")
+        return_object = [leaf_cert_pem, expiry_date, full_chain_pem]
+        print("Printing some debug data below.")
+        for item in return_object:
+            print(f"Type: {type(item)}, Content: {item}")
+        return return_object
 
 
     def generate_totp(self, totp_seed, digits=6, time_step=30, t0=0, digest_method=hashlib.sha1):
@@ -339,8 +345,6 @@ class Harica_EAB(SucmCertificateAuthority):
             self.approve_certificate_request(cert_id)
             self.login(self.order_email, self.order_password, self.order_totp_seed)
             certs = self.download_certificate(cert_id, common_name)
-            print(certs)
-            sys.exit(1)
             return certs
         except Exception as e:
             sys_logger.error(f"Error fetching certificate: {e}")
