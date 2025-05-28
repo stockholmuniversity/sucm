@@ -287,12 +287,12 @@ class Harica_EAB(SucmCertificateAuthority):
 
         # Parse expiration date from leaf certificate
         cert_obj = x509.load_pem_x509_certificate(leaf_cert_pem.encode(), default_backend())
-        expiry_date = datetime(cert_obj.not_valid_after)
-        print(f"Expiry date looks like: {expiry_date}")
+        expiry_date = cert_obj.not_valid_after_utc
+        # print(f"Expiry date looks like: {expiry_date}")
         return_object = [leaf_cert_pem, expiry_date, full_chain_pem]
-        print("Printing some debug data below.")
-        for item in return_object:
-            print(f"Type: {type(item)}, Content: {item}")
+        # print("Printing some debug data below.")
+        # for item in return_object:
+        #     print(f"Type: {type(item)}, Content: {item}")
         return return_object
 
 

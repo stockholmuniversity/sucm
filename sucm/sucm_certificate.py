@@ -436,8 +436,33 @@ class SucmCertificate:
             #            self.cachain = cachain_bytes.decode("utf-8")
 
             ## only ca
-            self.cachain = fullchain_certs[1] if fullchain_certs else None
-
+            new_cachain = ""
+            try:
+                for index, cert in enumerate(fullchain_certs):
+                    part = x509.load_pem_x509_certificate(cert.encode(), default_backend())
+                    print(f"Inspecting index #{index} in .pem")
+                    print(f"Subject: {str(part.subject)}")
+                    print(f"Issuer: {str(part.issuer)}")
+                    # This looks stupid but seems to be the most reliable way to determine
+                    # which one to go with. It seems to work with Harica, and will likely
+                    # have to be changed when switching to another CA in the future.
+                    if self.common_name in str(part.subject.rfc4514_string()):
+                        print("Passing leaf cert.")
+                        pass
+                    else:
+                        print(f"Joining cert for {part.subject.rfc4514_string()} to cachain.")
+                        new_cachain = new_cachain+cert+"\n"
+                    print("Passing the newly constructed 2 part cachain.")
+                    self.cachain = new_cachain.rstrip()
+            except Exception as e:
+                print(f"Ca chain logic failed because: {e}")
+                try:
+                    print("Falling back to passing what we assume to be the intermediate cert.")
+                    self.cachain = fullchain_certs[-2]
+                except Exception as e2:
+                    print("Fallback to the presumed intermediate cert failed as well, because: {e2}")
+                    print("So we fall back even further and pass None.")
+                    self.cachain = None
 
             self.create_date = datetime.today()
             self.status = "Renewed CRT"
