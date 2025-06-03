@@ -42,7 +42,7 @@ class SucmCertificate:
         self.notify_group = cert_conf["notify_group"]
         self.status = cert_conf["status"]
         self.secret_path = cert_conf["secret_path"]
-
+        self.harica_cert_id = None
         # Certificate Authority
         self.cert_authority = None
 
@@ -113,7 +113,7 @@ class SucmCertificate:
             raise TypeError(
                 f"{plugin_class_name} is not a valid certificate authority plugin"
             )
-
+        #print(f"ca_detail is: {ca_detail}")
         self.cert_authority = plugin_class()
 
     @staticmethod
@@ -268,6 +268,7 @@ class SucmCertificate:
         self.csr = secret_backend.read_secret(self.csr_filename)
 
     def commit_changes_to_db(self):
+        #print(f"Committing changes to db. certificate_authority_id: {self.certificate_authority_id}")
         if self.status is None:
             self.status = "New"
         cert_data = {
@@ -284,7 +285,7 @@ class SucmCertificate:
             "Secret_Path": self.secret_path,
             "Notify_Group_Id": self.notify_group,
             "Create_Date": self.create_date,
-            "Expiry_Date": self.expiry_date
+            "Expiry_Date": self.expiry_date,
         }
         sucm_db.add_update_record("Certificate", cert_data)
 
@@ -297,6 +298,7 @@ class SucmCertificate:
             "Cert_PEM": self.fullchain,
             "Create_Date": self.create_date,
             "Expiry_Date": self.expiry_date,
+            "Cert_Id_Harica": self.harica_cert_id,
         }
         sucm_db.add_update_record("ActiveCertificate", active_cert_data)
 
@@ -395,7 +397,7 @@ class SucmCertificate:
         # fullchain = self.get_active_cert_detail(active_cert_id)["cert_pem"]
         fullchain = self.get_active_cert_pem(active_cert_id)
         self._load_certificate_authority()
-        self.cert_authority.revoke_cert(fullchain, self.cert_id_harica)
+        self.cert_authority.revoke_cert(fullchain, active_cert_id)
         self.delete_active_cert(active_cert_id)
 
     @staticmethod
@@ -426,7 +428,7 @@ class SucmCertificate:
             self.crt = cert_data[0]
             self.expiry_date = cert_data[1]
             self.fullchain = cert_data[2]
-
+            self.harica_cert_id = cert_data[3]
             # create a cachain file  from the fullchain
             fullchain_certs = self._split_pem_chain(self.fullchain)
 
@@ -487,6 +489,7 @@ class SucmCertificate:
                         print(f"Failed to send email to {email}: {str(e)}")
 
     def get_certificate_authority_detail(self, certificate_authority_id=None):
+        print("Getting certificate authority detail.")
         return sucm_db.get_records(
             "CertificateAuthority", f"CA_Id = {certificate_authority_id}"
         )[0]

@@ -14,7 +14,7 @@ import requests
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from requests_toolbelt.multipart.encoder import MultipartEncoder
-
+from ..sucm_common import sucm_db
 from ..sucm_settings import cfg, sys_logger
 from . import SucmCertificateAuthority
 
@@ -217,21 +217,7 @@ class Harica_EAB(SucmCertificateAuthority):
         else:
             print("\n No reviews were approved (maybe already approved?).")
 
-    def revoke_certificate(self, common_name):
-        if not os.path.exists(local_cert_db):
-            print(f"No certificates.json found. Cannot revoke.")
-            sys.exit(1)
-
-        with open(local_cert_db, "r") as f:
-            certs = json.load(f)
-
-        cert_id = next((c["id"] for c in certs if c.get("domain") == common_name), None)
-
-        if not cert_id:
-            print(f"No certificate ID found for domain {common_name} in certificates.json")
-            sys.exit(1)
-
-        print(f"Found cert ID {cert_id} for domain {common_name}")
+    def revoke_certificate(self, cert_id):
         self.fetch_rvt()
 
         revoke_data = {
@@ -289,10 +275,10 @@ class Harica_EAB(SucmCertificateAuthority):
         cert_obj = x509.load_pem_x509_certificate(leaf_cert_pem.encode(), default_backend())
         expiry_date = cert_obj.not_valid_after_utc
         # print(f"Expiry date looks like: {expiry_date}")
-        return_object = [leaf_cert_pem, expiry_date, full_chain_pem]
-        # print("Printing some debug data below.")
-        # for item in return_object:
-        #     print(f"Type: {type(item)}, Content: {item}")
+        return_object = [leaf_cert_pem, expiry_date, full_chain_pem, cert_id]
+        print("Printing some debug data below.")
+        for item in return_object:
+            print(f"Type: {type(item)}, Content: {item}")
         return return_object
 
 
@@ -339,21 +325,24 @@ class Harica_EAB(SucmCertificateAuthority):
     def fetch_cert(self, csr_pem, common_name):
         try:
             self.login(self.order_email, self.order_password, self.order_totp_seed)
-            cert_id = self.request_certificate(common_name, csr_pem)
-            print(f"Certificate requested. cert_id returned is {cert_id}")
+            harica_cert_id = self.request_certificate(common_name, csr_pem)
+            print(f"Certificate requested. cert_id returned is {harica_cert_id}")
             self.login(self.approve_email, self.approve_password, self.approve_totp_seed)
-            self.approve_certificate_request(cert_id)
+            self.approve_certificate_request(harica_cert_id)
+            
             self.login(self.order_email, self.order_password, self.order_totp_seed)
-            certs = self.download_certificate(cert_id, common_name)
+            certs = self.download_certificate(harica_cert_id, common_name)
             return certs
         except Exception as e:
             sys_logger.error(f"Error fetching certificate: {e}")
             return []
 
-    def revoke_cert(self, fullchain_pem, common_name):
-        try:
-            pass
-            sys_logger.info("Certificate revoked successfully.")
-        except Exception as e:
-            sys_logger.error(f"Error revoking certificate: {e}")
-
+    def revoke_cert(self, fullchain_pem, active_cert_id, common_name=None):
+#        try:
+        cert_id_harica = sucm_db.get_records("activecertificate", f"ActiveCertificate_Id = {self.active_cert_id}")[0]["Cert_Id_Harica"]
+        print(f"Attempted retrieval of cert_id_harica, value: {cert_id_harica}")
+        self.revoke_certificate(cert_id_harica)
+        sys_logger.info("Certificate revoked successfully.")
+        
+#        except Exception as e:
+#            sys_logger.error(f"Error revoking certificate: {e}")

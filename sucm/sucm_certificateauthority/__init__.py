@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 
 class SucmCertificateAuthority(ABC):
     @abstractmethod
-    def fetch_cert(self, csr_pem, common_name):
+    def fetch_cert(self, csr_pem, active_cert_id, common_name=None):
         """
         Returns a cert file in bytecode from the cert provider, expiry date, cert_chain
             cert_data = self.cert_authority.fetch_cert(self.csr)

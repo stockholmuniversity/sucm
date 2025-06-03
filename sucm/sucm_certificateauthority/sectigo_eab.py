@@ -80,7 +80,7 @@ class Sectigo_EAB(SucmCertificateAuthority):
             sys_logger.error(f"Error fetching certificate: {e}")
             return []
 
-    def revoke_cert(self, fullchain_pem, common_name=None):
+    def revoke_cert(self, fullchain_pem, active_cert_id, common_name=None):
         try:
             fullchain_com = jose.ComparableX509(
                 OpenSSL.crypto.load_certificate(
