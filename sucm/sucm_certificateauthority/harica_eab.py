@@ -65,13 +65,13 @@ class Harica_EAB(SucmCertificateAuthority):
         r = self.session.post(f"{self.api_base_url}/api/User/Login2FA", json=login_data)
 
         if (
-                not r.ok
-                or not r.text
-                or not re.match(
-            r"^[a-z0-9-_]+\.[a-z0-9-_]+\.[a-z0-9-_]+$",
-            r.text.strip(),
-            re.IGNORECASE,
-        )
+            not r.ok
+            or not r.text
+            or not re.match(
+                r"^[a-z0-9-_]+\.[a-z0-9-_]+\.[a-z0-9-_]+$",
+                r.text.strip(),
+                re.IGNORECASE,
+            )
         ):
             print("Login failed or JWT token invalid:")
             print(r.text)
@@ -83,7 +83,7 @@ class Harica_EAB(SucmCertificateAuthority):
 
         self.fetch_rvt()
 
-    def domains_string_from_csr_pem(self,csr_pem, fallback_cn):
+    def domains_string_from_csr_pem(self, csr_pem, fallback_cn):
         """
         Build the HARICA `domainsString` value (CSV) from a PEM CSR.
         Order: CN first (if present, else fallback_cn), then SAN DNS names.
@@ -96,6 +96,7 @@ class Harica_EAB(SucmCertificateAuthority):
 
         ordered: List[str] = []
         print("before add")
+
         def _add(v):
             if v is None:
                 return
@@ -114,14 +115,15 @@ class Harica_EAB(SucmCertificateAuthority):
 
         # SAN DNS names (includes wildcards if present)
         try:
-            san_ext = csr.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+            san_ext = csr.extensions.get_extension_for_class(
+                x509.SubjectAlternativeName
+            )
             for d in san_ext.value.get_values_for_type(x509.DNSName):
                 _add(d)
         except x509.ExtensionNotFound:
             pass
 
         return ",".join(ordered)
-
 
     def request_certificate(self, common_name, csr):
         domains_csv = self.domains_string_from_csr_pem(csr, common_name)
@@ -132,18 +134,17 @@ class Harica_EAB(SucmCertificateAuthority):
             d = d.strip()
             if not d:
                 continue
-            is_wc = d.startswith("*.")      # wildcard?
-            base  = d[2:] if is_wc else d   # strip "*."
-            domain_objs.append({
-                "isWildcard": is_wc,
-                "domain": base,
-                "includeWWW": False
-            })
+            is_wc = d.startswith("*.")  # wildcard?
+            base = d[2:] if is_wc else d  # strip "*."
+            domain_objs.append(
+                {"isWildcard": is_wc, "domain": base, "includeWWW": False}
+            )
 
-        #Remove me START
-        print("\ndomains_objs -----\n" + json.dumps(domain_objs, indent=2) + "\n--------")
-        #Remove me END
-
+        # Remove me START
+        print(
+            "\ndomains_objs -----\n" + json.dumps(domain_objs, indent=2) + "\n--------"
+        )
+        # Remove me END
 
         r = self.session.post(f"{self.api_base_url}/api/User/GetCurrentUser")
         print("GetCurrentUser status:", r.status_code)
@@ -199,13 +200,12 @@ class Harica_EAB(SucmCertificateAuthority):
                 return None
 
     def approve_certificate_request(self, cert_id):
-        payload = {
-            "startIndex": 0,
-            "status": "Pending",
-            "filterPostDTOs": []
-        }
+        payload = {"startIndex": 0, "status": "Pending", "filterPostDTOs": []}
 
-        r = self.session.post(f"{self.api_base_url}/api/OrganizationValidatorSSL/GetSSLReviewableTransactions", json=payload)
+        r = self.session.post(
+            f"{self.api_base_url}/api/OrganizationValidatorSSL/GetSSLReviewableTransactions",
+            json=payload,
+        )
         if not r.ok:
             print(" Failed to fetch reviewable transactions.")
             sys.exit(1)
@@ -236,7 +236,7 @@ class Harica_EAB(SucmCertificateAuthority):
                     "isValid": "true",
                     "informApplicant": "true",
                     "reviewMessage": "Approved via script",
-                    "reviewValue": rval
+                    "reviewValue": rval,
                 }
 
                 m = MultipartEncoder(fields=fields)
@@ -244,7 +244,7 @@ class Harica_EAB(SucmCertificateAuthority):
 
                 r = self.session.post(
                     f"{self.api_base_url}/api/OrganizationValidatorSSL/UpdateReviews",
-                    data=m
+                    data=m,
                 )
 
                 if r.ok:
@@ -292,19 +292,19 @@ class Harica_EAB(SucmCertificateAuthority):
         r = self.session.post(
             f"{self.api_base_url}/api/Certificate/GetCertificate",
             json={"id": cert_id},
-            headers={"Content-Type": "application/json;charset=utf-8"}
+            headers={"Content-Type": "application/json;charset=utf-8"},
         )
 
         print("GetCertificate status:", r.status_code)
         if not r.ok:
             raise RuntimeError(f"Failed to get certificate: {r.text}")
 
-        full_chain = r.text.encode().decode('unicode_escape')
+        full_chain = r.text.encode().decode("unicode_escape")
 
         cert_blocks = re.findall(
             r"(-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)",
             full_chain,
-            re.DOTALL
+            re.DOTALL,
         )
 
         if not cert_blocks:
@@ -314,7 +314,9 @@ class Harica_EAB(SucmCertificateAuthority):
         full_chain_pem = "\n".join(block.strip() for block in cert_blocks) + "\n"
 
         # Parse expiration date from leaf certificate
-        cert_obj = x509.load_pem_x509_certificate(leaf_cert_pem.encode(), default_backend())
+        cert_obj = x509.load_pem_x509_certificate(
+            leaf_cert_pem.encode(), default_backend()
+        )
         expiry_date = cert_obj.not_valid_after_utc
         # print(f"Expiry date looks like: {expiry_date}")
         return_object = [leaf_cert_pem, expiry_date, full_chain_pem, cert_id]
@@ -323,8 +325,9 @@ class Harica_EAB(SucmCertificateAuthority):
             print(f"Type: {type(item)}, Content: {item}")
         return return_object
 
-
-    def generate_totp(self, totp_seed, digits=6, time_step=30, t0=0, digest_method=hashlib.sha1):
+    def generate_totp(
+        self, totp_seed, digits=6, time_step=30, t0=0, digest_method=hashlib.sha1
+    ):
         """
         Generates a TOTP code.
         :param secret: The TOTP seed as a base32 encoded string (without spaces).
@@ -336,30 +339,31 @@ class Harica_EAB(SucmCertificateAuthority):
         """
         try:
             # Decode the base32 secret (pads if necessary)
-            key = base64.b32decode(totp_seed.upper() + '=' * ((8 -
-                                                               len(totp_seed) % 8) % 8))
+            key = base64.b32decode(
+                totp_seed.upper() + "=" * ((8 - len(totp_seed) % 8) % 8)
+            )
         except Exception as e:
             raise ValueError("Invalid base32 encoded secret") from e
         # Calculate the number of time steps since t0
         current_time = int(time.time())
         counter = (current_time - t0) // time_step
         # Convert counter to byte array (big-endian, 8-byte integer)
-        counter_bytes = struct.pack('>Q', counter)
+        counter_bytes = struct.pack(">Q", counter)
         # Compute HMAC using the chosen digest method
         hmac_hash = hmac.new(key, counter_bytes, digest_method).digest()
         # Dynamic truncation: get offset from the last nibble of hmac_hash
         offset = hmac_hash[-1] & 0x0F
         # Take 4 bytes from offset
-        selected_bytes = hmac_hash[offset:offset + 4]
+        selected_bytes = hmac_hash[offset : offset + 4]
         # Convert to a 31-bit integer
-        code_int = struct.unpack('>I', selected_bytes)[0] & 0x7FFFFFFF
+        code_int = struct.unpack(">I", selected_bytes)[0] & 0x7FFFFFFF
         # Compute the OTP value
-        otp = code_int % (10 ** digits)
+        otp = code_int % (10**digits)
         # Pad with zeros if necessary
         return str(otp).zfill(digits)
         # Example usage:
         #
-        #if __name__ == '__main__':
+        # if __name__ == '__main__':
         #    # Replace with your base32 encoded TOTP seed/key
         #    code = generate_totp(self.harica_totp_seed)
         #    print("Your TOTP code is:", code)
@@ -369,7 +373,9 @@ class Harica_EAB(SucmCertificateAuthority):
             self.login(self.order_email, self.order_password, self.order_totp_seed)
             harica_cert_id = self.request_certificate(common_name, csr_pem)
             print(f"Certificate requested. cert_id returned is {harica_cert_id}")
-            self.login(self.approve_email, self.approve_password, self.approve_totp_seed)
+            self.login(
+                self.approve_email, self.approve_password, self.approve_totp_seed
+            )
             self.approve_certificate_request(harica_cert_id)
 
             self.login(self.order_email, self.order_password, self.order_totp_seed)
@@ -381,10 +387,13 @@ class Harica_EAB(SucmCertificateAuthority):
 
     def revoke_cert(self, fullchain_pem, active_cert_id, common_name=None):
         #        try:
-        cert_id_harica = sucm_db.get_records("activecertificate", f"ActiveCertificate_Id = {self.active_cert_id}")[0]["Cert_Id_Harica"]
+        cert_id_harica = sucm_db.get_records(
+            "activecertificate", f"ActiveCertificate_Id = {self.active_cert_id}"
+        )[0]["Cert_Id_Harica"]
         print(f"Attempted retrieval of cert_id_harica, value: {cert_id_harica}")
         self.revoke_certificate(cert_id_harica)
         sys_logger.info("Certificate revoked successfully.")
+
 
 #        except Exception as e:
 #            sys_logger.error(f"Error revoking certificate: {e}")
