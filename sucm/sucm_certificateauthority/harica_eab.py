@@ -12,8 +12,10 @@ from datetime import datetime
 
 import requests
 from cryptography import x509
+from cryptography.x509.oid import NameOID
 from cryptography.hazmat.backends import default_backend
 from requests_toolbelt.multipart.encoder import MultipartEncoder
+from requests_toolbelt.utils import dump
 
 from ..sucm_common import sucm_db
 from ..sucm_settings import cfg, sys_logger
@@ -63,13 +65,13 @@ class Harica_EAB(SucmCertificateAuthority):
         r = self.session.post(f"{self.api_base_url}/api/User/Login2FA", json=login_data)
 
         if (
-            not r.ok
-            or not r.text
-            or not re.match(
-                r"^[a-z0-9-_]+\.[a-z0-9-_]+\.[a-z0-9-_]+$",
-                r.text.strip(),
-                re.IGNORECASE,
-            )
+                not r.ok
+                or not r.text
+                or not re.match(
+            r"^[a-z0-9-_]+\.[a-z0-9-_]+\.[a-z0-9-_]+$",
+            r.text.strip(),
+            re.IGNORECASE,
+        )
         ):
             print("Login failed or JWT token invalid:")
             print(r.text)
@@ -81,7 +83,68 @@ class Harica_EAB(SucmCertificateAuthority):
 
         self.fetch_rvt()
 
+    def domains_string_from_csr_pem(self,csr_pem, fallback_cn):
+        """
+        Build the HARICA `domainsString` value (CSV) from a PEM CSR.
+        Order: CN first (if present, else fallback_cn), then SAN DNS names.
+        Duplicates are removed while preserving order.
+        """
+        if isinstance(csr_pem, bytes):
+            csr_pem = csr_pem.decode("utf-8")
+
+        csr = x509.load_pem_x509_csr(csr_pem.encode("utf-8"), default_backend())
+
+        ordered: List[str] = []
+        print("before add")
+        def _add(v):
+            if v is None:
+                return
+            v = str(v).strip()
+            if v and v not in ordered:
+                ordered.append(v)
+
+        print("after add")
+        # CN first (or fallback)
+        try:
+            cn_attrs = csr.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
+            cn = cn_attrs[0].value if cn_attrs else None
+            _add(cn if cn else fallback_cn)
+        except Exception:
+            _add(fallback_cn)
+
+        # SAN DNS names (includes wildcards if present)
+        try:
+            san_ext = csr.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+            for d in san_ext.value.get_values_for_type(x509.DNSName):
+                _add(d)
+        except x509.ExtensionNotFound:
+            pass
+
+        return ",".join(ordered)
+
+
     def request_certificate(self, common_name, csr):
+        domains_csv = self.domains_string_from_csr_pem(csr, common_name)
+        domains_list = domains_csv.split(",") if domains_csv else [common_name]
+        print("----- domains_csv\n" + domains_csv + "-------\n")
+        domain_objs = []
+        for d in domains_list:
+            d = d.strip()
+            if not d:
+                continue
+            is_wc = d.startswith("*.")      # wildcard?
+            base  = d[2:] if is_wc else d   # strip "*."
+            domain_objs.append({
+                "isWildcard": is_wc,
+                "domain": base,
+                "includeWWW": False
+            })
+
+        #Remove me START
+        print("\ndomains_objs -----\n" + json.dumps(domain_objs, indent=2) + "\n--------")
+        #Remove me END
+
+
         r = self.session.post(f"{self.api_base_url}/api/User/GetCurrentUser")
         print("GetCurrentUser status:", r.status_code)
 
@@ -103,38 +166,16 @@ class Harica_EAB(SucmCertificateAuthority):
         org_dn = f"OrganizationId:{org_id}&C:SE&L:Stockholm&O:Stockholms universitet"
         print("Organization ID:", org_id)
 
-#        key_path = key_file_template.format(common_name)
-#        csr_path = csr_file_template.format(common_name)
-#
-#        subprocess.run(["openssl", "genrsa", "-out", key_path, "2048"], check=True)
-#        subprocess.run(
-#            [
-#                "openssl",
-#                "req",
-#                "-new",
-#                "-key",
-#                key_path,
-#                "-subj",
-#                f"/CN={common_name}",
-#                "-out",
-#                csr_path,
-#            ],
-#            check=True,
-#        )
-
-#        with open(csr_path, "r") as f:
-#            csr = f.read()
-
         multipart_payload = MultipartEncoder(
             fields={
-                "domainsString": json.dumps([domain_obj]),
+                "domainsString": json.dumps(domain_objs),
                 "consentSameKey": "false",
                 "friendlyName": common_name,
                 "organizationDN": org_dn,
                 "duration": "1",
                 "csr": csr,
                 "transactionType": "OV",
-                "domains": json.dumps([domain_obj]),
+                "domains": json.dumps(domain_objs),
                 "isManualCSR": "true",
             }
         )
@@ -296,7 +337,7 @@ class Harica_EAB(SucmCertificateAuthority):
         try:
             # Decode the base32 secret (pads if necessary)
             key = base64.b32decode(totp_seed.upper() + '=' * ((8 -
-                len(totp_seed) % 8) % 8))
+                                                               len(totp_seed) % 8) % 8))
         except Exception as e:
             raise ValueError("Invalid base32 encoded secret") from e
         # Calculate the number of time steps since t0
@@ -330,7 +371,7 @@ class Harica_EAB(SucmCertificateAuthority):
             print(f"Certificate requested. cert_id returned is {harica_cert_id}")
             self.login(self.approve_email, self.approve_password, self.approve_totp_seed)
             self.approve_certificate_request(harica_cert_id)
-            
+
             self.login(self.order_email, self.order_password, self.order_totp_seed)
             certs = self.download_certificate(harica_cert_id, common_name)
             return certs
@@ -339,11 +380,11 @@ class Harica_EAB(SucmCertificateAuthority):
             return []
 
     def revoke_cert(self, fullchain_pem, active_cert_id, common_name=None):
-#        try:
+        #        try:
         cert_id_harica = sucm_db.get_records("activecertificate", f"ActiveCertificate_Id = {self.active_cert_id}")[0]["Cert_Id_Harica"]
         print(f"Attempted retrieval of cert_id_harica, value: {cert_id_harica}")
         self.revoke_certificate(cert_id_harica)
         sys_logger.info("Certificate revoked successfully.")
-        
+
 #        except Exception as e:
 #            sys_logger.error(f"Error revoking certificate: {e}")
