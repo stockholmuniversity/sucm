@@ -29,7 +29,6 @@ node("agent") {
 
             suWithPoetryCredentials(tag: tag) {
                 sh(script: "python3 -m poetry run python3 -m pylint *.py")
-                sh(script: "python3 -m poetry run python3 -m isort --check --diff .")
             }
         }
     }

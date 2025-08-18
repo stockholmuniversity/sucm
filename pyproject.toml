@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "sucm"
-version = "0.9.24"
+version = "0.9.25"
 description = "SSL certificate manager with web GUI"
 authors = ["Rasmus Thorslund <rasmus.thorslund@su.se>"]
 readme = "README.md"
