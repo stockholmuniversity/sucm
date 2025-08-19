@@ -286,51 +286,47 @@ def inspect_active_cert(active_cert_id):
 
 @bp.route("/revoke_cert/<active_cert_id>", methods=["POST", "GET"])
 def revoke_cert(active_cert_id):
+    print(f"[REVOKE][route][pid={os.getpid()}] start active_cert_id={active_cert_id}")
+
+    sc = SucmCertificate()  # fresh instance per request
+    print(f"[REVOKE][route] SucmCertificate obj_id={id(sc)}")
+
+    # Resolve only what's needed to (a) set CA on this instance, (b) redirect later
     try:
-        active_cert = SucmCertificate().get_active_cert_detail(
-            active_cert_id=active_cert_id
-        )
-        SucmCertificate().revoke_cert(active_cert_id)
-        noti_type = "Success"
-        noti_msg = "Cert revoked successfully!"
-        audit_logger.info(
-            "Active cert for: %s with id: %s removed by user %s",
-            active_cert["common_name"],
-            str(active_cert["active_cert_id"]),
-            session.get("username"),
-        )
-    except:
-        noti_type = "Danger"
-        noti_msg = "Failed to revoke certificate!"
+        active = sc.get_active_cert_detail(active_cert_id=active_cert_id)  # dict
+        print(f"[REVOKE][route] active row: cert_id={active.get('cert_id')} cn={active.get('common_name')}")
+        cert = sc.get_certificate_detail(active["cert_id"])               # dict
+        print(f"[REVOKE][route] cert row: CA_Id={cert.get('certificate_authority_id')} cn={cert.get('common_name')}")
+        cert_id_for_redirect = cert["cert_id"]
+    except Exception as e:
+        print(f"[REVOKE][route] failed to load active/cert rows for {active_cert_id}: {e}")
+        return redirect(url_for(
+            "main.active_certs",
+            notification_message="Failed to load certificate.",
+            notification_type="Danger",
+        ))
+
+    # 🔑 First lock: pre-set CA on this instance BEFORE calling service
+    sc.certificate_authority_id = cert["certificate_authority_id"]
+    sc.common_name = cert.get("common_name")
+    print(f"[REVOKE][route] preset on instance: CA_Id={sc.certificate_authority_id} CN={sc.common_name}")
 
     try:
-        cert_id = active_cert["cert_id"]
-        cert_data = SucmCertificate().get_certificate_detail(cert_id)
-        certificate_authority_detail = (
-            SucmCertificate().get_certificate_authority_detail(
-                cert_data["certificate_authority_id"]
-            )
-        )
-        all_active_certs = SucmCertificate().get_all_active_certs(cert_id)
-        return redirect(
-            url_for(
-                "main.inspect_cert",
-                cert_id=cert_id,
-                cert_data=cert_data,
-                certificate_authority_detail=certificate_authority_detail,
-                notification_message=noti_msg,
-                notification_type=noti_type,
-                all_active_certs=all_active_certs,
-            )
-        )
-    except:
-        return redirect(
-            url_for(
-                "main.active_certs",
-                notification_message=noti_msg,
-                notification_type=noti_type,
-            )
-        )
+        print(f"[REVOKE][route] calling service revoke_cert for ActiveCertificate_Id={active_cert_id}")
+        sc.revoke_cert(active_cert_id)  # service will re-derive & verify CA (second lock)
+        print(f"[REVOKE][route] service revoke_cert returned OK")
+        noti_type, noti_msg = "Success", "Cert revoked successfully!"
+    except Exception as e:
+        print(f"[REVOKE][route] revoke_cert raised: {e}")
+        noti_type, noti_msg = "Danger", "Failed to revoke certificate!"
+
+    print(f"[REVOKE][route] redirect → inspect_cert cert_id={cert_id_for_redirect}")
+    return redirect(url_for(
+        "main.inspect_cert",
+        cert_id=cert_id_for_redirect,
+        notification_message=noti_msg,
+        notification_type=noti_type,
+    ))
 
 
 @bp.route("/add_cert")
