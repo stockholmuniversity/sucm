@@ -259,7 +259,7 @@ class Harica_EAB(SucmCertificateAuthority):
         else:
             print("\n No reviews were approved (maybe already approved?).")
 
-    def revoke_certificate(self, cert_id):
+    def revoke_certificate(self, cert_id, common_name=None):
         self.fetch_rvt()
 
         revoke_data = {
@@ -386,14 +386,43 @@ class Harica_EAB(SucmCertificateAuthority):
             return []
 
     def revoke_cert(self, fullchain_pem, active_cert_id, common_name=None):
-        #        try:
-        cert_id_harica = sucm_db.get_records(
-            "activecertificate", f"ActiveCertificate_Id = {self.active_cert_id}"
-        )[0]["Cert_Id_Harica"]
-        print(f"Attempted retrieval of cert_id_harica, value: {cert_id_harica}")
-        self.revoke_certificate(cert_id_harica)
-        sys_logger.info("Certificate revoked successfully.")
+        """
+        HARICA revoke wrapper:
+        - Use the PARAMETER active_cert_id (not self.active_cert_id).
+        - Read the HARICA transaction id from ActiveCertificate.Cert_Id_Harica.
+        - Call revoke_certificate(...) with that id.
+        - Raise on error so caller won't delete locally.
+        """
+        print(f"[HARICA][revoke][pid={os.getpid()}] entry active_cert_id={active_cert_id} CN={common_name}")
 
+        # Look up HARICA's transaction id for this active certificate
+        try:
+            rows = sucm_db.execute_select_query(
+                "SELECT Cert_Id_Harica FROM ActiveCertificate WHERE ActiveCertificate_Id = %s",
+                (active_cert_id,),
+            )
+        except Exception as e:
+            print(f"[HARICA][revoke] SELECT failed for ActiveCertificate_Id={active_cert_id}: {e}")
+            raise
 
-#        except Exception as e:
-#            sys_logger.error(f"Error revoking certificate: {e}")
+        harica_id = rows[0][0] if rows and rows[0] else None
+        print(f"[HARICA][revoke] ActiveCertificate_Id={active_cert_id} -> Cert_Id_Harica={harica_id}")
+
+        if not harica_id:
+            msg = f"Missing Cert_Id_Harica for ActiveCertificate_Id={active_cert_id}"
+            print(f"[HARICA][revoke][ERROR] {msg}")
+            raise RuntimeError(msg)
+
+        # Call the actual HARICA revoke. Keep both variants in case your current
+        # revoke_certificate doesn't accept common_name yet.
+        try:
+            print(f"[HARICA][revoke] calling revoke_certificate(transactionId={harica_id})")
+            try:
+                self.revoke_certificate(harica_id, common_name=common_name)
+            except TypeError:
+                # fallback if revoke_certificate(cert_id) has no common_name param
+                self.revoke_certificate(harica_id)
+            print(f"[HARICA][revoke] revoke_certificate OK")
+        except Exception as e:
+            print(f"[HARICA][revoke][ERROR] HARICA API error for transactionId={harica_id}: {e}")
+            raise
