@@ -394,11 +394,59 @@ class SucmCertificate:
         self.commit_changes_to_db()
 
     def revoke_cert(self, active_cert_id):
-        # fullchain = self.get_active_cert_detail(active_cert_id)["cert_pem"]
-        fullchain = self.get_active_cert_pem(active_cert_id)
+        print(f"[REVOKE][svc][pid={os.getpid()}] entry active_cert_id={active_cert_id} self_id={id(self)} "
+              f"preset_CA_Id={getattr(self, 'certificate_authority_id', None)} preset_CN={getattr(self, 'common_name', None)}")
+
+        # Always derive CA from DB (authoritative)
+        active = self.get_active_cert_detail(active_cert_id=active_cert_id)  # dict
+        print(f"[REVOKE][svc] loaded active: cert_id={active.get('cert_id')} cn={active.get('common_name')}")
+        cert   = self.get_certificate_detail(active["cert_id"])              # dict
+        ca_id_db = cert["certificate_authority_id"]
+        print(f"[REVOKE][svc] loaded cert: CA_Id(db)={ca_id_db} cn={cert.get('common_name')}")
+
+        # Second lock: verify/override preset CA with DB truth
+        ca_id_preset = getattr(self, "certificate_authority_id", None)
+        if ca_id_preset != ca_id_db:
+            print(f"[REVOKE][svc] overriding preset CA_Id={ca_id_preset} -> DB CA_Id={ca_id_db}")
+            self.certificate_authority_id = ca_id_db
+        self.common_name = cert.get("common_name")
+
+        print(f"[REVOKE][svc] loading plugin for CA_Id={self.certificate_authority_id}")
         self._load_certificate_authority()
-        self.cert_authority.revoke_cert(fullchain, active_cert_id)
+        plugin = self.cert_authority
+        print(f"[REVOKE][svc] loaded plugin: class={type(plugin).__name__} module={type(plugin).__module__} obj_id={id(plugin)}")
+
+        # (Optional sanity: compute expected module name; ignore errors if your CA row shape differs)
+        try:
+            ca_row = self.get_certificate_authority_detail(self.certificate_authority_id)
+            name = (ca_row["Name"] if isinstance(ca_row, dict) else ca_row[1]).strip()
+            name_type = (ca_row["Name_Type"] if isinstance(ca_row, dict) else ca_row[2]).strip()
+            expected_module = f"sucm.sucm_certificateauthority.{name.lower()}_{name_type.lower()}"
+            print(f"[REVOKE][svc] expected plugin module={expected_module}")
+            if type(plugin).__module__ != expected_module:
+                print(f"[REVOKE][svc][WARN] plugin module mismatch: actual={type(plugin).__module__} expected={expected_module}")
+        except Exception as e:
+            print(f"[REVOKE][svc] (sanity) could not compute expected module: {e}")
+
+        fullchain = self.get_active_cert_pem(active_cert_id)
+        print(f"[REVOKE][svc] got fullchain_pem length={len(fullchain) if fullchain else 0}")
+
+        print(f"[REVOKE][svc] invoking plugin.revoke_cert(...)")
+        plugin.revoke_cert(fullchain, active_cert_id, common_name=self.common_name)
+        print(f"[REVOKE][svc] plugin.revoke_cert returned OK")
+
+        print(f"[REVOKE][svc] deleting ActiveCertificate_Id={active_cert_id}")
         self.delete_active_cert(active_cert_id)
+        print(f"[REVOKE][svc] delete done; revoke flow finished")
+
+
+
+
+        # fullchain = self.get_active_cert_detail(active_cert_id)["cert_pem"]
+        #fullchain = self.get_active_cert_pem(active_cert_id)
+        #self._load_certificate_authority()
+        #self.cert_authority.revoke_cert(fullchain, active_cert_id)
+        #self.delete_active_cert(active_cert_id)
 
     @staticmethod
     def _split_pem_chain(pem_chain):
