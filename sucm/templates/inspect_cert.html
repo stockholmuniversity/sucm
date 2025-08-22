@@ -120,7 +120,7 @@
                                 <td>{{cert['serial_number']}}</td>
                                 <td>
                                     <form action="{{ url_for('main.revoke_cert', active_cert_id=cert['active_cert_id']) }}" method="post" class="inline-form">
-                                        <input class="btn btn-danger" type="submit" value="Revoke" disabled>
+                                        <input class="btn btn-danger" type="submit" value="Revoke">
                                     </form>
                                     <form action="{{ url_for('main.inspect_active_cert', active_cert_id=cert['active_cert_id']) }}" method="get" class="inline-form">
                                         <input class="btn btn-primary" type="submit" value="Inspect">
