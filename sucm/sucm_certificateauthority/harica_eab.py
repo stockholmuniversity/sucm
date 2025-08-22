@@ -393,6 +393,7 @@ class Harica_EAB(SucmCertificateAuthority):
         - Call revoke_certificate(...) with that id.
         - Raise on error so caller won't delete locally.
         """
+        self.login(self.order_email, self.order_password, self.order_totp_seed)
         print(f"[HARICA][revoke][pid={os.getpid()}] entry active_cert_id={active_cert_id} CN={common_name}")
 
         # Look up HARICA's transaction id for this active certificate
