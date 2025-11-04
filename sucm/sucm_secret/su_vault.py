@@ -29,12 +29,36 @@ class SuVault(SucmSecret):
 
     def init_vault(self):
         try:
+            print("[DEBUG] Initializing Vault client...")
             self.client = hvac.Client(url=self.vault_addr, token=self.vault_token)
+
             if not self.vault_token:
+                print("[DEBUG] No existing token found, performing AppRole login...")
                 self.login = self.client.auth.approle.login(
-                    role_id=vault_config["role_id"], secret_id=vault_config["secret_id"]
+                    role_id=vault_config["role_id"],
+                    secret_id=vault_config["secret_id"]
                 )
                 self.vault_token = self.login["auth"]["client_token"]
+                self.client.token = self.vault_token
+                print("[DEBUG] New token obtained via AppRole login.")
+
+            if not self.client.is_authenticated():
+                print("[DEBUG] Existing token invalid or expired, performing re-login...")
+                self.login = self.client.auth.approle.login(
+                    role_id=vault_config["role_id"],
+                    secret_id=vault_config["secret_id"]
+                )
+                self.vault_token = self.login["auth"]["client_token"]
+                self.client.token = self.vault_token
+                print("[DEBUG] Token refreshed via re-login.")
+
+            # Debug print of current TTL
+            try:
+                info = self.client.auth.token.lookup_self()["data"]
+                ttl = info.get("ttl", "unknown")
+                print(f"[DEBUG] Vault token TTL={ttl}s")
+            except Exception as e:
+                print(f"[DEBUG] Failed to get token TTL: {e}")
 
             self.secrets_db = SucmMysql(
                 vault_config["vaultdb_host"],
@@ -46,6 +70,8 @@ class SuVault(SucmSecret):
             sys_logger.info("SucmVault instance successfully initialized.")
         except Exception as e:
             sys_logger.error("Failed to initialize SucmVault: %s", e)
+            print(f"[DEBUG] Failed to initialize SucmVault: {e}")
+
 
     def get_all_paths(self):
         try:
