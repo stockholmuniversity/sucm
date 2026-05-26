@@ -15,37 +15,43 @@ def job_function():
     certs_to_remove = SucmCertificate().get_expired_certs()
     if certs_to_renew:
         for cert in certs_to_renew:
-            if cert["cert_type"] == "Manual":
-                emailaddresses = SucmNotifyGroup().get_notifygroup_detail(
-                    cert["notify_group"]
-                )[2]
-                cert_obj = SucmCertificate(cert_id=cert["cert_id"])
-                cert_obj.set_current_class_values_from_db()
-                if cert_obj.status != "Sent Email":
-                    for email in emailaddresses.replace(" ", "").split(","):
-                        send_email(
-                            cert["common_name"] + " needs manual intervention in SUCM",
-                            cert["common_name"] + " needs to be renewed",
-                            email,
-                        )
-                        app_logger.info(
-                            "%s: Email has been sent to %s to request manual intervention.",
-                            cert["common_name"],
-                            email,
-                        )
-                    cert_obj.status = "Sent Email"
-                    cert_obj.commit_changes_to_db()
+            try:
+                if cert["cert_type"] == "Manual":
+                    emailaddresses = SucmNotifyGroup().get_notifygroup_detail(
+                        cert["notify_group"]
+                    )[2]
+                    cert_obj = SucmCertificate(cert_id=cert["cert_id"])
+                    cert_obj.set_current_class_values_from_db()
+                    if cert_obj.status != "Sent Email":
+                        for email in emailaddresses.replace(" ", "").split(","):
+                            send_email(
+                                cert["common_name"] + " needs manual intervention in SUCM",
+                                cert["common_name"] + " needs to be renewed",
+                                email,
+                            )
+                            app_logger.info(
+                                "%s: Email has been sent to %s to request manual intervention.",
+                                cert["common_name"],
+                                email,
+                            )
+                        cert_obj.status = "Sent Email"
+                        cert_obj.commit_changes_to_db()
+                        del cert_obj
+                else:
+                    cert_obj = SucmCertificate(cert_id=cert["cert_id"])
+                    cert_obj.set_current_class_values_from_db()
+                    cert_obj.create_new_key_and_csr()
+                    cert_obj.renew_cert_with_csr()
+                    app_logger.info(
+                        "%s has been renewed automatically and pushed to vault.",
+                        cert["common_name"],
+                    )
                     del cert_obj
-            else:
-                cert_obj = SucmCertificate(cert_id=cert["cert_id"])
-                cert_obj.set_current_class_values_from_db()
-                cert_obj.create_new_key_and_csr()
-                cert_obj.renew_cert_with_csr()
-                app_logger.info(
-                    "%s has been renewed automatically and pushed to vault.",
-                    cert["common_name"],
+            except IndexError as e:
+                app_logger.error(
+                    "Error processing certificate"
                 )
-                del cert_obj
+
 
     if certs_to_remove:
         for active_cert in certs_to_remove:
