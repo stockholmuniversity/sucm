@@ -55,15 +55,19 @@ def job_function():
 
     if certs_to_remove:
         for active_cert in certs_to_remove:
-            SucmCertificate().delete_active_cert(
-                active_cert_id=active_cert["active_cert_id"]
-            )
-            app_logger.info(
-                "Certificate for %s that expired %s has been removed from the database, since it is no longer valid.",
-                active_cert["common_name"],
-                active_cert["expiry_date"],
-            )
-
+            try:
+                SucmCertificate().delete_active_cert(
+                    active_cert_id=active_cert["active_cert_id"]
+                )
+                app_logger.info(
+                    "Certificate for %s that expired %s has been removed from the database, since it is no longer valid.",
+                    active_cert["common_name"],
+                    active_cert["expiry_date"],
+                )
+            except KeyError as e:
+                app_logger.error(
+                    "Error removing certificate"
+                )
     app_logger.info("Job completed!")
     state["LAST_RUN"] = datetime.now()
 
