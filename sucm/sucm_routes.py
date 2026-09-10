@@ -6,7 +6,7 @@ from werkzeug.utils import secure_filename
 
 from .sucm_certificate import SucmCertificate
 from .sucm_common import sucm_secret
-from .sucm_globals import CERT_TYPES, state
+from .sucm_globals import ACME_CERT_TYPE, CERT_TYPES, state
 from .sucm_notifygroup import SucmNotifyGroup
 from .sucm_settings import APP_LOGFILE, audit_logger, cfg
 
@@ -99,6 +99,23 @@ def edit_cert_response():
             cert_operation = "edit"
             noti_type = "Success"
             noti_msg = "Cert edited successfully!"
+
+        # ACME-managed certs are only ever created/edited by the ACME account
+        # admin panel / order-finalize bridge, never through this form - even
+        # if a tampered request tries to smuggle it in via the cert_type field.
+        if (
+            request.form["cert_type"] == ACME_CERT_TYPE
+            or (cert_details and cert_details.get("cert_type") == ACME_CERT_TYPE)
+        ):
+            noti_type = "Danger"
+            noti_msg = "ACME-managed certificates cannot be created or edited here."
+            return redirect(
+                url_for(
+                    "main.index",
+                    notification_message=noti_msg,
+                    notification_type=noti_type,
+                )
+            )
 
         cert_conf = {
             "common_name": request.form["common_name"],
@@ -403,6 +420,17 @@ def inspect_cert(cert_id):
 @bp.route("/edit_cert?<cert_id>", methods=["POST", "GET"])
 def edit_cert(cert_id):
     cert_data = SucmCertificate().get_certificate_detail(cert_id)
+
+    if cert_data.get("cert_type") == ACME_CERT_TYPE:
+        return redirect(
+            url_for(
+                "main.inspect_cert",
+                cert_id=cert_id,
+                notification_message="ACME-managed certificates cannot be edited here.",
+                notification_type="Danger",
+            )
+        )
+
     notify_groups = SucmNotifyGroup().get_all_notifygroups()
     certificate_authoritys = SucmCertificate().get_all_certificate_authority()
 

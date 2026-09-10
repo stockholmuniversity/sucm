@@ -100,3 +100,26 @@
     Email_CSV TEXT NOT NULL,
     PRIMARY KEY (Group_Id));
 
+**ACME MITM layer - account/domain tables (phase 1)**
+
+    CREATE TABLE AcmeAccount(
+    Account_Id INT UNSIGNED NOT NULL,
+    Kid VARCHAR(64) NOT NULL,
+    Hmac_Key_Hash CHAR(64) NOT NULL,
+    Owner_Contact VARCHAR(255) NOT NULL,
+    Status TEXT NOT NULL,
+    Jwk_Thumbprint VARCHAR(255) NULL,
+    Requested_By VARCHAR(255) NULL,
+    Create_Date DATETIME NULL,
+    Activated_By VARCHAR(255) NULL,
+    Activated_Date DATETIME NULL,
+    PRIMARY KEY (Account_Id),
+    UNIQUE KEY uq_acmeaccount_kid (Kid));
+
+    CREATE TABLE AcmeAccountDomain(
+    Domain_Id INT UNSIGNED NOT NULL,
+    Account_Id INT UNSIGNED NOT NULL,
+    Domain_Pattern VARCHAR(255) NOT NULL,
+    PRIMARY KEY (Domain_Id),
+    FOREIGN KEY (Account_Id) REFERENCES AcmeAccount(Account_Id) ON DELETE CASCADE);
+

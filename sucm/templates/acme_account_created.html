@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}SUCM: ACME account created {% endblock %}
+
+{% block content %}
+<div class="py-5" style="padding-left: 40px;">
+    <div class="alert alert-warning" role="alert" style="max-width: 700px;">
+        These credentials are shown <strong>once</strong>. Store them now - they
+        cannot be retrieved again. If lost, request a new account.
+    </div>
+    <table class="table" style="max-width: 700px;">
+        <tbody>
+            <tr><th>Account Id</th><td>{{ new_account.account_id }}</td></tr>
+            <tr><th>EAB kid</th><td><code>{{ new_account.kid }}</code></td></tr>
+            <tr><th>EAB hmac key</th><td><code>{{ new_account.hmac_key }}</code></td></tr>
+        </tbody>
+    </table>
+    <p style="max-width: 700px;">
+        Your account is <strong>pending</strong> and cannot be used to request
+        certificates until an administrator activates it and adds allowed
+        domains.
+    </p>
+</div>
+{% endblock %}

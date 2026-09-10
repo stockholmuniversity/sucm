@@ -4,7 +4,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from .sucm_certificate import SucmCertificate
 from .sucm_common import send_email
-from .sucm_globals import state
+from .sucm_globals import ACME_CERT_TYPE, state
 from .sucm_notifygroup import SucmNotifyGroup
 from .sucm_settings import app_logger
 
@@ -16,6 +16,10 @@ def job_function():
     if certs_to_renew:
         for cert in certs_to_renew:
             try:
+                if cert["cert_type"] == ACME_CERT_TYPE:
+                    # Managed by an external ACME client (e.g. certbot), which
+                    # drives its own renewal - never touch it here.
+                    continue
                 if cert["cert_type"] == "Manual":
                     emailaddresses = SucmNotifyGroup().get_notifygroup_detail(
                         cert["notify_group"]

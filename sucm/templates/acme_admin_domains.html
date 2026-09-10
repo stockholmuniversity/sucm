@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}SUCM: ACME account domains {% endblock %}
+
+{% block content %}
+<div class="py-5" style="padding-left: 40px;">
+    <h4>Account {{ account.account_id }} ({{ account.owner_contact }}) - status: {{ account.status }}</h4>
+    <table class="table" style="max-width: 700px;">
+        <thead>
+            <tr><th>Domain pattern</th><th></th></tr>
+        </thead>
+        <tbody>
+            {% for domain in domains %}
+            <tr>
+                <td>{{ domain.domain_pattern }}</td>
+                <td>
+                    <form method="post" action="{{ url_for('acme_accounts.admin_domains_delete', domain_id=domain.domain_id) }}">
+                        <input class="btn btn-danger btn-sm" type="submit" value="Remove">
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <form method="post" action="{{ url_for('acme_accounts.admin_domains_add', account_id=account.account_id) }}" class="card p-3 bg-light" style="max-width: 500px;">
+        <div class="form-group">
+            <label for="domain_pattern">Add domain (exact or *.wildcard):</label>
+            <input type="text" class="form-control" id="domain_pattern" name="domain_pattern" placeholder="host.su.se or *.host.su.se" required>
+        </div>
+        <input class="btn btn-primary" type="submit" value="Add domain">
+    </form>
+    <p class="mt-3">
+        <a href="{{ url_for('acme_accounts.admin_list') }}">&laquo; Back to accounts</a>
+    </p>
+</div>
+{% endblock %}

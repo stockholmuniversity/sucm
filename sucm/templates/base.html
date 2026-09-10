@@ -75,6 +75,14 @@
     <li class="nav-item {% if request.path == url_for('main.faq') %}active{% endif %}">
         <a class="nav-link" href="{{ url_for('main.faq') }}">FAQ</a>
     </li>
+
+    <li class="nav-item {% if request.path == url_for('acme_accounts.request_account') %}active{% endif %}">
+        <a class="nav-link" href="{{ url_for('acme_accounts.request_account') }}">Request ACME account</a>
+    </li>
+
+    <li class="nav-item {% if request.path == url_for('acme_accounts.admin_list') %}active{% endif %}">
+        <a class="nav-link" href="{{ url_for('acme_accounts.admin_list') }}">ACME accounts (admin)</a>
+    </li>
 </ul>
 				</div>
 			</nav>

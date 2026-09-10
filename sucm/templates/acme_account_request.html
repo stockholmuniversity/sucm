@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}SUCM: Request ACME account {% endblock %}
+
+{% block content %}
+<div class="py-5" style="padding-left: 40px;">
+    <div class="row">
+        <div class="col-lg-4" style="max-width: 500px;">
+            <form method="post" class="card p-3 bg-light">
+                <div class="form-group">
+                    <label for="owner_contact">Contact email(s):</label>
+                    <input type="text" class="form-control" id="owner_contact" name="owner_contact" placeholder="you@su.se" required>
+                </div>
+                <div class="form-group">
+                    <input class="btn btn-primary" type="submit" value="Request ACME account">
+                </div>
+            </form>
+            <p class="text-muted mt-3">
+                Your account is created immediately but stays <strong>pending</strong>
+                until an administrator activates it and assigns which domains it may
+                request certificates for. The credentials shown on the next page are
+                only shown <strong>once</strong> - save them now.
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}
