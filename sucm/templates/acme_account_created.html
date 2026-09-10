@@ -15,6 +15,16 @@
         </tbody>
     </table>
     <p style="max-width: 700px;">
+        <a class="btn btn-primary"
+           href="data:text/plain;base64,{{ certbot_config_b64 }}"
+           download="certbot.ini">Download certbot config</a>
+        <br><small>A ready-to-use certbot cli.ini with the ACME directory
+        URL and your EAB kid/hmac already filled in (everything else left
+        at certbot's defaults). Use it with <code>certbot --config
+        certbot.ini ...</code>. Like the credentials above, this is only
+        offered once.</small>
+    </p>
+    <p style="max-width: 700px;">
         Your account is <strong>pending</strong> and cannot be used to request
         certificates until an administrator activates it and adds allowed
         domains.

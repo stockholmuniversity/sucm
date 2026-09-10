@@ -39,6 +39,18 @@ class SucmAcmeAccount:
         # HMAC key material (RFC 8555 section 7.3.4).
         return secrets.token_urlsafe(32)
 
+    # Explicit column list (rather than SELECT *) so the row -> dict mapping
+    # never depends on the table's physical column order. ALTER TABLE ADD
+    # COLUMN (used by scripts/migrate_acme_accounts.py to add Name and
+    # Topdesk_Ticket on already-deployed tables) appends new columns at the
+    # end of the table, not wherever they were declared in the model -
+    # relying on SELECT * silently scrambled these fields.
+    _COLUMNS = (
+        "Account_Id, Eab_Kid, Hmac_Key_Encrypted, Name, Topdesk_Ticket, "
+        "Status, Jwk_Json, Requested_By, Create_Date, Activated_By, "
+        "Activated_Date"
+    )
+
     @staticmethod
     def _account_row_to_dict(row):
         return {
@@ -100,7 +112,7 @@ class SucmAcmeAccount:
         return account_id, eab_kid, hmac_key
 
     def get_all_accounts(self):
-        rows = sucm_db.get_records("AcmeAccount")
+        rows = sucm_db.execute_select_query(f"SELECT {self._COLUMNS} FROM AcmeAccount")
         if not rows:
             return []
         return [self._account_row_to_dict(row) for row in rows]
@@ -109,7 +121,8 @@ class SucmAcmeAccount:
         if account_id is None:
             account_id = self.account_id
         rows = sucm_db.execute_select_query(
-            "SELECT * FROM AcmeAccount WHERE Account_Id = %s", (account_id,)
+            f"SELECT {self._COLUMNS} FROM AcmeAccount WHERE Account_Id = %s",
+            (account_id,),
         )
         if not rows:
             return {}
@@ -117,7 +130,7 @@ class SucmAcmeAccount:
 
     def get_account_by_eab_kid(self, eab_kid):
         rows = sucm_db.execute_select_query(
-            "SELECT * FROM AcmeAccount WHERE Eab_Kid = %s", (eab_kid,)
+            f"SELECT {self._COLUMNS} FROM AcmeAccount WHERE Eab_Kid = %s", (eab_kid,)
         )
         if not rows:
             return {}

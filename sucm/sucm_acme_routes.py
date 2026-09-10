@@ -1,9 +1,26 @@
+import base64
+
 from flask import Blueprint, g, redirect, render_template, request, session, url_for
 
 from .sucm_acme_account import SucmAcmeAccount
 from .sucm_settings import audit_logger
 
 bp = Blueprint("acme_accounts", __name__, url_prefix="/acme-accounts")
+
+
+def _build_certbot_config(eab_kid, hmac_key):
+    """
+    Builds a ready-to-use certbot cli.ini for this account: just the ACME
+    directory URL and the EAB kid/hmac, everything else left at certbot's
+    own defaults. The directory URL is derived from the current request so
+    it is correct for whichever environment (test/prod) issued it.
+    """
+    directory_url = url_for("acme_server.directory", _external=True)
+    return (
+        f"server = {directory_url}\n"
+        f"eab-kid = {eab_kid}\n"
+        f"eab-hmac-key = {hmac_key}\n"
+    )
 
 
 def _short_username(remote_user):
@@ -71,7 +88,17 @@ def account_created():
     new_account = session.pop("acme_new_account", None)
     if not new_account:
         return redirect(url_for("acme_accounts.request_account"))
-    return render_template("acme_account_created.html", new_account=new_account)
+    certbot_config = _build_certbot_config(
+        new_account["eab_kid"], new_account["hmac_key"]
+    )
+    certbot_config_b64 = base64.b64encode(certbot_config.encode("utf-8")).decode(
+        "ascii"
+    )
+    return render_template(
+        "acme_account_created.html",
+        new_account=new_account,
+        certbot_config_b64=certbot_config_b64,
+    )
 
 
 @bp.route("/admin")
