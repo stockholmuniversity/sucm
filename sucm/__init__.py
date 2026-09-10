@@ -3,6 +3,7 @@ from flask_sso import SSO
 
 from . import sucm_routes
 from .sucm_acme_routes import bp as acme_accounts_bp
+from .sucm_acme_server_routes import bp as acme_server_bp
 from .sucm_automation import start_scheduler
 from .sucm_settings import cfg
 
@@ -16,6 +17,7 @@ def create_app():
 
     app.register_blueprint(sucm_routes.bp)
     app.register_blueprint(acme_accounts_bp)
+    app.register_blueprint(acme_server_bp)
     start_scheduler()
 
     return app

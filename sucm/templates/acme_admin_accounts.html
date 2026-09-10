@@ -8,7 +8,8 @@
             <tr>
                 <th scope="col">#</th>
                 <th scope="col">Kid</th>
-                <th scope="col">Contact</th>
+                <th scope="col">Name</th>
+                <th scope="col">TOPDESK</th>
                 <th scope="col">Status</th>
                 <th scope="col">Requested by</th>
                 <th scope="col">Created</th>
@@ -19,8 +20,9 @@
             {% for account in accounts %}
             <tr>
                 <th scope="row">{{ account.account_id }}</th>
-                <td><code>{{ account.kid }}</code></td>
-                <td>{{ account.owner_contact }}</td>
+                <td><code>{{ account.eab_kid }}</code></td>
+                <td>{{ account.name }}</td>
+                <td>{{ account.topdesk_ticket }}</td>
                 <td>{{ account.status }}</td>
                 <td>{{ account.requested_by }}</td>
                 <td>{{ account.create_date }}</td>

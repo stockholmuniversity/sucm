@@ -3,7 +3,8 @@
 
 {% block content %}
 <div class="py-5" style="padding-left: 40px;">
-    <h4>Account {{ account.account_id }} ({{ account.owner_contact }}) - status: {{ account.status }}</h4>
+    <h4>Account {{ account.account_id }} ({{ account.name }}) - status: {{ account.status }}</h4>
+    <p class="text-muted">TOPDESK ticket: {{ account.topdesk_ticket }}</p>
     <table class="table" style="max-width: 700px;">
         <thead>
             <tr><th>Domain pattern</th><th></th></tr>

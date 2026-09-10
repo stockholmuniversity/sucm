@@ -1,7 +1,7 @@
-import hashlib
 import secrets
 from datetime import datetime
 
+from .sucm_acme_crypto import decrypt_secret, encrypt_secret
 from .sucm_common import sucm_db
 
 ACME_ACCOUNT_STATUSES = ["pending", "active", "disabled"]
@@ -9,25 +9,28 @@ ACME_ACCOUNT_STATUSES = ["pending", "active", "disabled"]
 
 class SucmAcmeAccount:
     """
-    Manages ACME account requests used for the (future) ACME front-end.
+    Manages ACME account requests and the (future) ACME server's account
+    lookups.
 
     Accounts are created instantly in "pending" status by anyone who can
     reach the request form. The plaintext EAB hmac key is generated once,
-    returned to the caller, and never stored - only its SHA-256 hash is
-    persisted so it can be verified (but not recovered) later by the ACME
-    server. An administrator must explicitly activate an account and assign
-    its allowed domains before it can be used to request certificates.
+    shown to the requester exactly once, and stored only in encrypted form
+    (see sucm_acme_crypto) - it must still be recoverable (not merely
+    verifiable) because RFC 8555 externalAccountBinding is HMAC-based: the
+    server needs the raw shared secret to verify each newAccount signature,
+    a hash alone would not work. An administrator must explicitly activate
+    an account and assign its allowed domains before it can be used.
+
+    An account's ACME client key (JWK) is bound on its first successful
+    newAccount call and stored so subsequent "kid"-signed requests
+    (identifying the account by its ACME account URL) can be verified.
     """
 
     def __init__(self, account_id=None):
         self.account_id = account_id
 
     @staticmethod
-    def _hash_hmac_key(hmac_key):
-        return hashlib.sha256(hmac_key.encode("utf-8")).hexdigest()
-
-    @staticmethod
-    def _generate_kid():
+    def _generate_eab_kid():
         return "acct_" + secrets.token_urlsafe(24)
 
     @staticmethod
@@ -40,15 +43,16 @@ class SucmAcmeAccount:
     def _account_row_to_dict(row):
         return {
             "account_id": row[0],
-            "kid": row[1],
-            "hmac_key_hash": row[2],
-            "owner_contact": row[3],
-            "status": row[4],
-            "jwk_thumbprint": row[5],
-            "requested_by": row[6],
-            "create_date": row[7],
-            "activated_by": row[8],
-            "activated_date": row[9],
+            "eab_kid": row[1],
+            "hmac_key_encrypted": row[2],
+            "name": row[3],
+            "topdesk_ticket": row[4],
+            "status": row[5],
+            "jwk_json": row[6],
+            "requested_by": row[7],
+            "create_date": row[8],
+            "activated_by": row[9],
+            "activated_date": row[10],
         }
 
     @staticmethod
@@ -62,29 +66,38 @@ class SucmAcmeAccount:
     def get_next_account_id(self):
         return sucm_db.get_next_available_id("AcmeAccount")
 
-    def create_account(self, owner_contact, requested_by=None):
+    def create_account(self, name, topdesk_ticket, requested_by=None):
         """
         Creates a new pending AcmeAccount.
 
-        Returns (account_id, kid, hmac_key) - the caller MUST show hmac_key
-        to the requester immediately; it cannot be retrieved again.
+        `name` is a free-text friendly label for the account (shown in the
+        admin panel). `topdesk_ticket` is a free-text TOPDESK ticket
+        reference the admin uses to manually validate the request before
+        activating it - it is not otherwise interpreted or enforced by
+        the app.
+
+        Returns (account_id, eab_kid, hmac_key) - the caller MUST show
+        hmac_key to the requester immediately; it cannot be shown again
+        (only the ACME server, with access to the app's config, can ever
+        recover it afterwards).
         """
         account_id = self.get_next_account_id()
-        kid = self._generate_kid()
+        eab_kid = self._generate_eab_kid()
         hmac_key = self._generate_hmac_key()
 
         account_data = {
             "Account_Id": account_id,
-            "Kid": kid,
-            "Hmac_Key_Hash": self._hash_hmac_key(hmac_key),
-            "Owner_Contact": owner_contact,
+            "Eab_Kid": eab_kid,
+            "Hmac_Key_Encrypted": encrypt_secret(hmac_key),
+            "Name": name,
+            "Topdesk_Ticket": topdesk_ticket,
             "Status": "pending",
             "Requested_By": requested_by,
             "Create_Date": datetime.now(),
         }
         sucm_db.add_update_record("AcmeAccount", account_data)
         self.account_id = account_id
-        return account_id, kid, hmac_key
+        return account_id, eab_kid, hmac_key
 
     def get_all_accounts(self):
         rows = sucm_db.get_records("AcmeAccount")
@@ -101,6 +114,26 @@ class SucmAcmeAccount:
         if not rows:
             return {}
         return self._account_row_to_dict(rows[0])
+
+    def get_account_by_eab_kid(self, eab_kid):
+        rows = sucm_db.execute_select_query(
+            "SELECT * FROM AcmeAccount WHERE Eab_Kid = %s", (eab_kid,)
+        )
+        if not rows:
+            return {}
+        return self._account_row_to_dict(rows[0])
+
+    def get_decrypted_hmac_key(self, account):
+        """
+        account: the dict returned by get_account_detail/get_account_by_eab_kid.
+        """
+        return decrypt_secret(account["hmac_key_encrypted"])
+
+    def bind_jwk(self, account_id, jwk_json):
+        sucm_db.execute_modify_query(
+            "UPDATE AcmeAccount SET Jwk_Json = %s WHERE Account_Id = %s",
+            (jwk_json, account_id),
+        )
 
     def activate_account(self, account_id, activated_by):
         sucm_db.execute_modify_query(
@@ -145,3 +178,28 @@ class SucmAcmeAccount:
 
     def remove_domain(self, domain_id):
         sucm_db.remove_record("AcmeAccountDomain", f"Domain_Id = {int(domain_id)}")
+
+    @staticmethod
+    def _pattern_matches(pattern, identifier_value):
+        pattern = pattern.strip().lower()
+        identifier_value = identifier_value.strip().lower()
+
+        if pattern == identifier_value:
+            return True
+
+        if pattern.startswith("*."):
+            suffix = pattern[2:]
+            if identifier_value.endswith("." + suffix):
+                label = identifier_value[: -(len(suffix) + 1)]
+                # Wildcards only ever cover exactly one label, matching
+                # normal CA/browser wildcard-cert semantics.
+                return bool(label) and "." not in label
+
+        return False
+
+    def is_domain_allowed(self, account_id, identifier_value):
+        domains = self.get_domains(account_id)
+        return any(
+            self._pattern_matches(d["domain_pattern"], identifier_value)
+            for d in domains
+        )

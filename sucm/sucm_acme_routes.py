@@ -6,13 +6,24 @@ from .sucm_settings import audit_logger
 bp = Blueprint("acme_accounts", __name__, url_prefix="/acme-accounts")
 
 
+def _short_username(remote_user):
+    """
+    Apache/Shibboleth sets X-Remote-User to the full eppn (e.g.
+    "cljo1227@su.se"). For display/audit purposes we only want the short,
+    local part before the "@" (e.g. "cljo1227").
+    """
+    if not remote_user:
+        return remote_user
+    return remote_user.split("@", 1)[0]
+
+
 @bp.before_request
 def before_request():
     # Mirrors main.bp's before_request. Apache/Shibboleth enforces the
     # actual group membership per path (it-staff for the request form,
     # it-produktion-infra-imdb for the admin views) - this only captures
     # identity for session/audit purposes.
-    session["username"] = request.headers.get("X-Remote-User")
+    session["username"] = _short_username(request.headers.get("X-Remote-User"))
     g.eppn = session["username"]
     session["display_name"] = request.headers.get("X-Remote-Display-Name")
     session["group"] = request.headers.get("X-Remote-MemberOf")
@@ -21,21 +32,25 @@ def before_request():
 @bp.route("/request", methods=["GET", "POST"])
 def request_account():
     if request.method == "POST":
-        owner_contact = request.form.get("owner_contact", "").strip()
-        if not owner_contact:
+        name = request.form.get("name", "").strip()
+        topdesk_ticket = request.form.get("topdesk_ticket", "").strip()
+        if not name or not topdesk_ticket:
             return render_template(
                 "acme_account_request.html",
-                notification_message="Contact email is required.",
+                notification_message="Name and TOPDESK ticket are both required.",
                 notification_type="Danger",
             )
 
-        account_id, kid, hmac_key = SucmAcmeAccount().create_account(
-            owner_contact=owner_contact, requested_by=session.get("username")
+        account_id, eab_kid, hmac_key = SucmAcmeAccount().create_account(
+            name=name,
+            topdesk_ticket=topdesk_ticket,
+            requested_by=session.get("username"),
         )
         audit_logger.info(
-            "ACME account %s (contact: %s) requested by %s",
+            "ACME account %s (name: %s, TOPDESK: %s) requested by %s",
             account_id,
-            owner_contact,
+            name,
+            topdesk_ticket,
             session.get("username"),
         )
 
@@ -43,7 +58,7 @@ def request_account():
         # reveal on the next page. It is never written to the DB or logs.
         session["acme_new_account"] = {
             "account_id": account_id,
-            "kid": kid,
+            "eab_kid": eab_kid,
             "hmac_key": hmac_key,
         }
         return redirect(url_for("acme_accounts.account_created"))
