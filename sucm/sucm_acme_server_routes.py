@@ -217,7 +217,11 @@ def _verify_eab(eab_jws, account_jwk, outer_url):
 
     hmac_key = decrypt_secret(account["hmac_key_encrypted"])
     signing_input = f"{protected_b64}.{payload_b64}".encode("ascii")
-    verify_signature(alg, signing_input, signature, hmac_key=hmac_key.encode("utf-8"))
+    # The EAB hmac key we hand out (and that certbot/acme clients receive)
+    # is a base64url string per RFC 8555 section 7.3.4 - clients decode it
+    # before using it as raw HMAC key material, so we must do the same
+    # rather than using the string's own ASCII bytes as the key.
+    verify_signature(alg, signing_input, signature, hmac_key=b64url_decode(hmac_key))
 
     bound_jwk = json.loads(payload_bytes)
     if bound_jwk != account_jwk:
