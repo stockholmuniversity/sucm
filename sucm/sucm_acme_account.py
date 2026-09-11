@@ -162,7 +162,7 @@ class SucmAcmeAccount:
         )
 
     def delete_account(self, account_id):
-        sucm_db.remove_record("AcmeAccount", f"Account_Id = {int(account_id)}")
+        sucm_db.remove_record("AcmeAccount", "Account_Id = %s", (int(account_id),))
 
     # --- Domain allow-list ---
 
@@ -190,7 +190,7 @@ class SucmAcmeAccount:
         return domain_id
 
     def remove_domain(self, domain_id):
-        sucm_db.remove_record("AcmeAccountDomain", f"Domain_Id = {int(domain_id)}")
+        sucm_db.remove_record("AcmeAccountDomain", "Domain_Id = %s", (int(domain_id),))
 
     @staticmethod
     def _pattern_matches(pattern, identifier_value):

@@ -106,21 +106,31 @@ class SucmMysql:
                 else (1000 if table_name == "NotifyGroup" else 10000)
             )
 
-    def get_records(self, table_name, condition=None):
+    def get_records(self, table_name, condition=None, params=None):
+        """
+        `condition` must be a static, non-user-controlled WHERE clause (e.g.
+        "Cert_Id = %s"). Any value coming from user/attacker-reachable input
+        MUST be passed via `params` (a tuple) and referenced with %s
+        placeholders in `condition` - never interpolated into the string.
+        """
         try:
             sql_command = f"SELECT * FROM {table_name}"
             if condition and "None" not in condition:
                 sql_command += f" WHERE {condition}"
-            records = self.execute_select_query(sql_command)
+            records = self.execute_select_query(sql_command, params)
             sys_logger.debug("Executed SELECT query: %s", sql_command)
             return records
         except (Exception, mysql.connector.Error) as error:
             sys_logger.error("Error while executing SELECT query: %s", error)
             return None
 
-    def remove_record(self, table_name, condition):
+    def remove_record(self, table_name, condition, params=None):
+        """
+        Same rule as get_records(): `condition` must be static, with any
+        user-supplied value passed via `params` and referenced as %s.
+        """
         sql_command = f"DELETE FROM {table_name} WHERE {condition}"
-        result = self.execute_modify_query(sql_command, ())
+        result = self.execute_modify_query(sql_command, params or ())
         if result == "Success":
             sys_logger.debug("Executed MODIFY query: %s", sql_command)
         return result

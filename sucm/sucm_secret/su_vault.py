@@ -192,7 +192,9 @@ class SuVault(SucmSecret):
                 path=self.secret_path + file_name, mount_point=self.mount_point
             )
             secret_key = self.secret_path + file_name
-            self.secrets_db.remove_record("meta_data", f"secret_key = '{secret_key}'")
+            self.secrets_db.remove_record(
+                "meta_data", "secret_key = %s", (secret_key,)
+            )
             sys_logger.info("Secret for file %s removed successfully.", file_name)
         except Exception as e:
             sys_logger.error("Failed to remove secret for file %s: %s", file_name, e)

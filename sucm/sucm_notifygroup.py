@@ -16,7 +16,7 @@ class SucmNotifyGroup:
     def get_notifygroup_detail(self, group_id=None):
         if group_id is None:
             group_id = self.group_id
-        return sucm_db.get_records("NotifyGroup", f"Group_Id = {group_id}")[0]
+        return sucm_db.get_records("NotifyGroup", "Group_Id = %s", (group_id,))[0]
 
     def add_update_notifygroup(self):
         group_data = {
@@ -29,13 +29,15 @@ class SucmNotifyGroup:
     def delete_notifygroup(self, group_id=None):
         if group_id is None:
             group_id = self.group_id
-        sucm_db.remove_record("NotifyGroup", f"Group_Id = {group_id}")
+        sucm_db.remove_record("NotifyGroup", "Group_Id = %s", (group_id,))
 
     def get_all_certs_for_group_id(self, group_id=None):
         if group_id is None:
             group_id = self.group_id
         if group_id != 1000:
-            result = sucm_db.get_records("Certificate", f"Notify_Group_Id = {group_id}")
+            result = sucm_db.get_records(
+                "Certificate", "Notify_Group_Id = %s", (group_id,)
+            )
             used_in = [sublist[2] for sublist in result]
             return used_in
         return ["The rest.."]

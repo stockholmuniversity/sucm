@@ -74,7 +74,9 @@ class SucmCertificate:
             self.fullchain_filename = self.common_name + ".fullchain"
 
     def set_current_class_values_from_db(self):
-        cert_data = sucm_db.get_records("Certificate", f"Cert_Id = {self.cert_id}")[0]
+        cert_data = sucm_db.get_records(
+            "Certificate", "Cert_Id = %s", (self.cert_id,)
+        )[0]
         attrs = {
             "certificate_authority_id": 1,
             "common_name": 2,
@@ -159,7 +161,9 @@ class SucmCertificate:
         if cert_id is None:
             all_data = sucm_db.get_records("ActiveCertificate")
         else:
-            all_data = sucm_db.get_records("ActiveCertificate", f"Cert_Id = {cert_id}")
+            all_data = sucm_db.get_records(
+                "ActiveCertificate", "Cert_Id = %s", (cert_id,)
+            )
         data_list = []
         for data in all_data:
             details = self._create_active_cert_dict(data)
@@ -168,19 +172,19 @@ class SucmCertificate:
 
     def delete_active_cert(self, active_cert_id):
         sucm_db.remove_record(
-            "ActiveCertificate", f"ActiveCertificate_Id = {active_cert_id}"
+            "ActiveCertificate", "ActiveCertificate_Id = %s", (active_cert_id,)
         )
 
     def get_active_cert_detail(self, active_cert_id):
         data = sucm_db.get_records(
-            "ActiveCertificate", f"ActiveCertificate_Id = {active_cert_id}"
+            "ActiveCertificate", "ActiveCertificate_Id = %s", (active_cert_id,)
         )[0]
         details = self._create_active_cert_dict(data)
         return details
 
     def get_active_cert_pem(self, active_cert_id):
         data = sucm_db.get_records(
-            "ActiveCertificate", f"ActiveCertificate_Id = {active_cert_id}"
+            "ActiveCertificate", "ActiveCertificate_Id = %s", (active_cert_id,)
         )[0]
         details = data[3]
         return details
@@ -219,16 +223,17 @@ class SucmCertificate:
         if cert_id is None:
             cert_id = self.cert_id
         try:
-            data = sucm_db.get_records("Certificate", f"Cert_Id = {cert_id}")[0]
+            data = sucm_db.get_records("Certificate", "Cert_Id = %s", (cert_id,))[0]
             details = self._create_cert_dict(data)
             return details
         except IndexError:
             return {}
 
     def get_common_name(self, common_name):
-        common_name = f'"{common_name}"'
         try:
-            data = sucm_db.get_records("Certificate", f"Common_Name = {common_name}")[0]
+            data = sucm_db.get_records(
+                "Certificate", "Common_Name = %s", (common_name,)
+            )[0]
             details = self._create_cert_dict(data)
             return details
         except IndexError:
@@ -261,7 +266,7 @@ class SucmCertificate:
     def delete_cert(self, cert_id=None):
         if cert_id is None:
             cert_id = self.cert_id
-        sucm_db.remove_record("Certificate", f"Cert_Id = {cert_id}")
+        sucm_db.remove_record("Certificate", "Cert_Id = %s", (cert_id,))
 
     def _fetch_csr(self):
         secret_backend = sucm_secret
@@ -540,7 +545,7 @@ class SucmCertificate:
     def get_certificate_authority_detail(self, certificate_authority_id=None):
         print("Getting certificate authority detail.")
         return sucm_db.get_records(
-            "CertificateAuthority", f"CA_Id = {certificate_authority_id}"
+            "CertificateAuthority", "CA_Id = %s", (certificate_authority_id,)
         )[0]
 
     def get_all_certificate_authority(self):

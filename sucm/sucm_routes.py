@@ -245,7 +245,7 @@ def add_group():
 
 
 @bp.route(
-    "/delete_group/<group_id>", methods=["POST", "GET"]
+    "/delete_group/<int:group_id>", methods=["POST"]
 )  ## Note! need to add method for cleaning these from the certs data also.
 def delete_group(group_id):
     try:
@@ -253,7 +253,7 @@ def delete_group(group_id):
         noti_type = "Success"
         noti_msg = "NotifyGroup removed successfully!"
         audit_logger.info(
-            "Group ID: " + group_id + " removed by user " + session.get("username")
+            "Group ID: " + str(group_id) + " removed by user " + session.get("username")
         )
     except:
         noti_type = "Danger"
@@ -267,7 +267,7 @@ def delete_group(group_id):
     )
 
 
-@bp.route("/delete_cert/<cert_id>", methods=["POST", "GET"])
+@bp.route("/delete_cert/<int:cert_id>", methods=["POST"])
 def delete_cert(cert_id):
     try:
         cert = SucmCertificate().get_certificate_detail(cert_id=cert_id)
@@ -290,7 +290,7 @@ def delete_cert(cert_id):
     )
 
 
-@bp.route("/inspect_active_cert/<active_cert_id>", methods=["POST", "GET"])
+@bp.route("/inspect_active_cert/<int:active_cert_id>", methods=["POST", "GET"])
 def inspect_active_cert(active_cert_id):
     details = SucmCertificate().get_active_cert_ssl_data(active_cert_id)
 
@@ -301,7 +301,7 @@ def inspect_active_cert(active_cert_id):
     )
 
 
-@bp.route("/revoke_cert/<active_cert_id>", methods=["POST", "GET"])
+@bp.route("/revoke_cert/<int:active_cert_id>", methods=["POST"])
 def revoke_cert(active_cert_id):
     print(f"[REVOKE][route][pid={os.getpid()}] start active_cert_id={active_cert_id}")
 
@@ -473,13 +473,13 @@ def edit_cert(cert_id):
     )
 
 
-@bp.route("/submit_csr/<cert_id>", methods=["POST", "GET"])
+@bp.route("/submit_csr/<int:cert_id>", methods=["POST", "GET"])
 def submit_csr(cert_id):
     cert_data = SucmCertificate().get_certificate_detail(cert_id)
     return render_template("submit_csr.html", cert_data=cert_data)
 
 
-@bp.route("/renew_crt/<cert_id>", methods=["POST", "GET"])
+@bp.route("/renew_crt/<int:cert_id>", methods=["POST"])
 def renew_crt(cert_id):
     cert = SucmCertificate(cert_id=cert_id)
     cert.create_new_key_and_csr()
@@ -499,7 +499,7 @@ def renew_crt(cert_id):
     )
 
 
-@bp.route("/renew_csr/<cert_id>", methods=["POST", "GET"])
+@bp.route("/renew_csr/<int:cert_id>", methods=["POST"])
 def renew_csr(cert_id):
     cert = SucmCertificate(cert_id=cert_id)
     cert.create_new_key_and_csr()
@@ -518,7 +518,7 @@ def renew_csr(cert_id):
     )
 
 
-@bp.route("/submit_csr_response", methods=["POST", "GET"])
+@bp.route("/submit_csr_response", methods=["POST"])
 def submit_csr_response():
     cert_id = request.form["cert_id"]
 
@@ -566,7 +566,7 @@ def submit_csr_response():
     )
 
 
-@bp.route("/edit_group/<group_id>", methods=["POST", "GET"])
+@bp.route("/edit_group/<int:group_id>", methods=["POST", "GET"])
 def edit_group(group_id):
-    group_data = SucmNotifyGroup().get_notifygroup_detail(int(group_id))
+    group_data = SucmNotifyGroup().get_notifygroup_detail(group_id)
     return render_template("edit_group.html", group_data=group_data)
