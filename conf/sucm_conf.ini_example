@@ -30,6 +30,17 @@ user_agent = SUCM
 email = 
 account_key_pw =
 
+[ACME]
+# Issuance settings for certs requested through the built-in ACME server
+# (/acme/...). These are NOT selectable by the ACME client. REQUIRED before
+# the ACME server is used in production - if unset, finalization fails
+# closed. ca_plugin_name is "<Name>_<Name_Type>" of a CertificateAuthority
+# row (e.g. Harica_EAB). secret_path must be one of the paths returned by
+# the secrets backend's get_all_paths(). notify_group_id may be left empty.
+ca_plugin_name = Harica_EAB
+secret_path =
+notify_group_id =
+
 [SUCM]
 secret_key = "random string"
 sucm_path = /local/cert-app

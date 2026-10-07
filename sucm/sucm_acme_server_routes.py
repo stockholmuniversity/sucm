@@ -4,9 +4,11 @@ ACME client) speaks. Unlike sucm_acme_routes.py (the human-facing account
 request/admin portal, gated by Shibboleth), every endpoint here is reached
 directly by automated clients with no SSO session, so:
 
- - all DB access here MUST use parameterised queries (never
-   sucm_db.get_records()/remove_record()'s string-interpolated
-   conditions - see AGENTS.md).
+ - all DB access here MUST use parameterised queries. get_records()/
+   remove_record() now build `WHERE <col> = %s` internally from a validated
+   column identifier, so they are safe - but for anything beyond
+   single-column equality use execute_select_query()/execute_modify_query()
+   with real parameter binding, never an f-string SQL fragment (see AGENTS.md).
  - every response that is part of a JWS exchange gets a fresh
    Replay-Nonce header (RFC 8555 section 6.5).
  - errors are returned as application/problem+json (RFC 8555 section 6.7),
@@ -93,7 +95,10 @@ def _order_to_json(order):
     if order["status"] == "valid" and order["cert_id"] is not None:
         body["certificate"] = _cert_url(order["order_id"])
     if order.get("error"):
-        body["error"] = {"type": PROBLEM_NS + "serverInternal", "detail": order["error"]}
+        body["error"] = {
+            "type": PROBLEM_NS + "serverInternal",
+            "detail": order["error"],
+        }
     return body
 
 
@@ -158,8 +163,8 @@ def _verify_outer_jws(body_json, expected_url):
     Raises JwsError/SucmAcmeOrderError on any failure - callers should
     catch these and turn them into problem+json responses.
     """
-    protected, payload_bytes, signature, protected_b64, payload_b64 = parse_flattened_jws(
-        body_json
+    protected, payload_bytes, signature, protected_b64, payload_b64 = (
+        parse_flattened_jws(body_json)
     )
 
     alg = protected.get("alg")
@@ -200,8 +205,8 @@ def _verify_eab(eab_jws, account_jwk, outer_url):
     HS256-signed with the account's pre-shared EAB hmac key, "kid" is the
     Eab_Kid, payload is the outer account JWK.
     """
-    protected, payload_bytes, signature, protected_b64, payload_b64 = parse_flattened_jws(
-        eab_jws
+    protected, payload_bytes, signature, protected_b64, payload_b64 = (
+        parse_flattened_jws(eab_jws)
     )
 
     alg = protected.get("alg")
@@ -225,7 +230,9 @@ def _verify_eab(eab_jws, account_jwk, outer_url):
 
     bound_jwk = json.loads(payload_bytes)
     if bound_jwk != account_jwk:
-        raise JwsError("externalAccountBinding payload JWK does not match the account JWK")
+        raise JwsError(
+            "externalAccountBinding payload JWK does not match the account JWK"
+        )
 
     return account
 
@@ -234,7 +241,9 @@ def _verify_eab(eab_jws, account_jwk, outer_url):
 def new_account():
     outer_url = url_for("acme_server.new_account", _external=True)
     try:
-        protected, payload, _account, jwk = _verify_outer_jws(request.get_json(force=True), outer_url)
+        protected, payload, _account, jwk = _verify_outer_jws(
+            request.get_json(force=True), outer_url
+        )
     except JwsError as exc:
         return _jws_problem(exc)
 
@@ -259,7 +268,9 @@ def new_account():
             "This account has been requested but not yet activated by an administrator",
         )
     if eab_account["status"] == "disabled":
-        return _problem("unauthorized", "This account has been disabled by an administrator")
+        return _problem(
+            "unauthorized", "This account has been disabled by an administrator"
+        )
 
     account_model = SucmAcmeAccount()
     jwk_json = json.dumps(jwk, sort_keys=True)
@@ -271,10 +282,24 @@ def new_account():
                 "request a new account via the portal if you need a new key",
             )
     else:
-        account_model.bind_jwk(eab_account["account_id"], jwk_json)
-        audit_logger.info(
-            "ACME account %s bound to a client JWK via newAccount", eab_account["account_id"]
-        )
+        # Atomic check-and-set: only binds if no JWK was bound yet. If we lost
+        # a race with a concurrent first newAccount for the same EAB kid, the
+        # winner's JWK is now authoritative - re-read and require it to match
+        # the key this request was actually signed with, rather than letting
+        # our (losing) key overwrite it.
+        if account_model.bind_jwk(eab_account["account_id"], jwk_json):
+            audit_logger.info(
+                "ACME account %s bound to a client JWK via newAccount",
+                eab_account["account_id"],
+            )
+        else:
+            winner = account_model.get_account_detail(eab_account["account_id"])
+            if not winner.get("jwk_json") or json.loads(winner["jwk_json"]) != jwk:
+                return _problem(
+                    "unauthorized",
+                    "This EAB credential is already bound to a different account key; "
+                    "request a new account via the portal if you need a new key",
+                )
 
     account_url = _account_url(eab_account["account_id"])
     resp = jsonify(
@@ -296,7 +321,9 @@ def new_account():
 def account(account_id):
     outer_url = _account_url(account_id)
     try:
-        _protected, _payload, acct, _jwk = _verify_outer_jws(request.get_json(force=True), outer_url)
+        _protected, _payload, acct, _jwk = _verify_outer_jws(
+            request.get_json(force=True), outer_url
+        )
     except JwsError as exc:
         return _jws_problem(exc)
 
@@ -306,16 +333,22 @@ def account(account_id):
     return jsonify(
         {
             "status": "valid" if acct["status"] == "active" else acct["status"],
-            "orders": url_for("acme_server.account_orders", account_id=account_id, _external=True),
+            "orders": url_for(
+                "acme_server.account_orders", account_id=account_id, _external=True
+            ),
         }
     )
 
 
 @bp.route("/account/<int:account_id>/orders", methods=["POST"])
 def account_orders(account_id):
-    outer_url = url_for("acme_server.account_orders", account_id=account_id, _external=True)
+    outer_url = url_for(
+        "acme_server.account_orders", account_id=account_id, _external=True
+    )
     try:
-        _protected, _payload, acct, _jwk = _verify_outer_jws(request.get_json(force=True), outer_url)
+        _protected, _payload, acct, _jwk = _verify_outer_jws(
+            request.get_json(force=True), outer_url
+        )
     except JwsError as exc:
         return _jws_problem(exc)
     if not acct or int(acct["account_id"]) != account_id:
@@ -327,12 +360,17 @@ def account_orders(account_id):
 def new_order():
     outer_url = url_for("acme_server.new_order", _external=True)
     try:
-        _protected, payload, acct, _jwk = _verify_outer_jws(request.get_json(force=True), outer_url)
+        _protected, payload, acct, _jwk = _verify_outer_jws(
+            request.get_json(force=True), outer_url
+        )
     except JwsError as exc:
         return _jws_problem(exc)
 
     if not acct:
-        return _problem("malformed", "new-order must be signed with an account 'kid', not an embedded 'jwk'")
+        return _problem(
+            "malformed",
+            "new-order must be signed with an account 'kid', not an embedded 'jwk'",
+        )
 
     identifiers = payload.get("identifiers", [])
     try:
@@ -350,7 +388,9 @@ def new_order():
 def get_order(order_id):
     outer_url = _order_url(order_id)
     try:
-        _protected, _payload, acct, _jwk = _verify_outer_jws(request.get_json(force=True), outer_url)
+        _protected, _payload, acct, _jwk = _verify_outer_jws(
+            request.get_json(force=True), outer_url
+        )
     except JwsError as exc:
         return _jws_problem(exc)
 
@@ -365,7 +405,9 @@ def get_order(order_id):
 def get_authz(authz_id):
     outer_url = _authz_url(authz_id)
     try:
-        _protected, _payload, acct, _jwk = _verify_outer_jws(request.get_json(force=True), outer_url)
+        _protected, _payload, acct, _jwk = _verify_outer_jws(
+            request.get_json(force=True), outer_url
+        )
     except JwsError as exc:
         return _jws_problem(exc)
 
@@ -374,7 +416,9 @@ def get_authz(authz_id):
         return _problem("malformed", "No such authorization", 404)
     order = SucmAcmeOrder().get_order(authz["order_id"])
     if not acct or not order or order["account_id"] != acct["account_id"]:
-        return _problem("unauthorized", "This authorization does not belong to your account")
+        return _problem(
+            "unauthorized", "This authorization does not belong to your account"
+        )
 
     return jsonify(_authz_to_json(authz))
 
@@ -383,7 +427,9 @@ def get_authz(authz_id):
 def challenge(authz_id):
     outer_url = _chall_url(authz_id)
     try:
-        _protected, _payload, acct, _jwk = _verify_outer_jws(request.get_json(force=True), outer_url)
+        _protected, _payload, acct, _jwk = _verify_outer_jws(
+            request.get_json(force=True), outer_url
+        )
     except JwsError as exc:
         return _jws_problem(exc)
 
@@ -392,7 +438,9 @@ def challenge(authz_id):
         return _problem("malformed", "No such authorization", 404)
     order = SucmAcmeOrder().get_order(authz["order_id"])
     if not acct or not order or order["account_id"] != acct["account_id"]:
-        return _problem("unauthorized", "This authorization does not belong to your account")
+        return _problem(
+            "unauthorized", "This authorization does not belong to your account"
+        )
 
     # Authorizations are pre-validated (see sucm_acme_order.py docstring),
     # so there is nothing to actually do here - just report "valid".
@@ -412,7 +460,9 @@ def challenge(authz_id):
 def finalize(order_id):
     outer_url = _finalize_url(order_id)
     try:
-        _protected, payload, acct, _jwk = _verify_outer_jws(request.get_json(force=True), outer_url)
+        _protected, payload, acct, _jwk = _verify_outer_jws(
+            request.get_json(force=True), outer_url
+        )
     except JwsError as exc:
         return _jws_problem(exc)
 
@@ -464,7 +514,9 @@ def download_cert(order_id):
 def revoke_cert():
     outer_url = url_for("acme_server.revoke_cert", _external=True)
     try:
-        _protected, payload, acct, _jwk = _verify_outer_jws(request.get_json(force=True), outer_url)
+        _protected, payload, acct, _jwk = _verify_outer_jws(
+            request.get_json(force=True), outer_url
+        )
     except JwsError as exc:
         return _jws_problem(exc)
     if not acct:
@@ -480,39 +532,70 @@ def revoke_cert():
     except ValueError as exc:
         return _problem("malformed", f"Could not parse certificate: {exc}")
 
-    common_name = None
+    # Identify the certificate being revoked by its actual identity -
+    # (issuer, serial number) - NOT by the attacker-controllable CN string in
+    # its subject. The previous implementation looked up a Certificate row by
+    # CN and revoked whatever the *latest* active cert for that CN was, which
+    # both trusted a string the caller controls and could revoke a cert other
+    # than the one submitted. We instead walk only the calling account's own
+    # ACME orders and require an exact issuer+serial match against a stored,
+    # ACME-issued active certificate.
+    submitted_serial = leaf.serial_number
+    submitted_issuer = leaf.issuer.rfc4514_string()
+
+    sc = SucmCertificate()
+    order_model = SucmAcmeOrder()
+    matched = None  # (cert_detail, active_cert_dict)
+
+    for order in order_model.get_orders_for_account(acct["account_id"]):
+        if order["cert_id"] is None:
+            continue
+        cert_detail = sc.get_certificate_detail(order["cert_id"])
+        if not cert_detail or cert_detail.get("cert_type") != ACME_CERT_TYPE:
+            continue
+        for active in sc.get_all_active_certs(cert_detail["cert_id"]):
+            try:
+                stored_pem = sc.get_active_cert_pem(active["active_cert_id"])
+                stored_leaf = x509.load_pem_x509_certificate(
+                    stored_pem.encode(), default_backend()
+                )
+            except Exception:
+                # Unparseable stored row - skip it rather than fail the whole
+                # revocation request.
+                continue
+            if (
+                stored_leaf.serial_number == submitted_serial
+                and stored_leaf.issuer.rfc4514_string() == submitted_issuer
+            ):
+                matched = (cert_detail, active)
+                break
+        if matched:
+            break
+
+    if not matched:
+        # Deliberately generic: do not reveal whether the cert exists but is
+        # owned by another account vs. not known at all.
+        return _problem(
+            "unauthorized",
+            "No certificate issued to your account matches the submitted "
+            "certificate (by issuer and serial number)",
+        )
+
+    cert_detail, active = matched
+    common_name = cert_detail.get("common_name")
+
     try:
-        cn_attrs = leaf.subject.get_attributes_for_oid(x509.oid.NameOID.COMMON_NAME)
-        if cn_attrs:
-            common_name = cn_attrs[0].value
-    except Exception:
-        pass
-    if not common_name:
-        return _problem("malformed", "Could not determine the certificate's common name")
-
-    cert_detail = SucmCertificate().get_common_name(common_name)
-
-    if not cert_detail or cert_detail.get("cert_type") != ACME_CERT_TYPE:
-        return _problem("unauthorized", "No matching ACME-issued certificate found")
-
-    orders = SucmAcmeOrder().get_orders_for_cert(cert_detail["cert_id"])
-    if not any(o["account_id"] == acct["account_id"] for o in orders):
-        return _problem("unauthorized", "This certificate was not issued to your account")
-
-    active_certs = SucmCertificate().get_all_active_certs(cert_detail["cert_id"])
-    if not active_certs:
-        return _problem("malformed", "No active certificate to revoke", 404)
-    latest = max(active_certs, key=lambda c: c["active_cert_id"])
-
-    try:
-        SucmCertificate(cert_id=cert_detail["cert_id"]).revoke_cert(latest["active_cert_id"])
+        SucmCertificate(cert_id=cert_detail["cert_id"]).revoke_cert(
+            active["active_cert_id"]
+        )
     except Exception as exc:
         return _problem("serverInternal", f"Revocation failed: {exc}", 500)
 
     audit_logger.info(
-        "ACME account %s revoked certificate %s (%s)",
+        "ACME account %s revoked certificate %s (%s, serial %s)",
         acct["account_id"],
         cert_detail["cert_id"],
         common_name,
+        submitted_serial,
     )
     return ("", 200)

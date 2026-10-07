@@ -110,7 +110,11 @@ def verify_signature(alg, signing_input, signature, *, public_key=None, hmac_key
             der_sig = utils.encode_dss_signature(r, s)
             public_key.verify(der_sig, signing_input, ec.ECDSA(hashes.SHA256()))
         elif alg in ("HS256", "HS384", "HS512"):
-            digestmod = {"HS256": hashlib.sha256, "HS384": hashlib.sha384, "HS512": hashlib.sha512}[alg]
+            digestmod = {
+                "HS256": hashlib.sha256,
+                "HS384": hashlib.sha384,
+                "HS512": hashlib.sha512,
+            }[alg]
             expected = hmac.new(hmac_key, signing_input, digestmod).digest()
             if not hmac.compare_digest(expected, signature):
                 raise JwsError("HMAC signature verification failed")

@@ -34,20 +34,30 @@ except TypeError as e:
     sys_logger.error(e)
 
 
+def _sanitize_header(value):
+    """Strip CR/LF so a caller-supplied value can never break out of its header
+    and inject additional headers into the outbound message."""
+    return str(value).replace("\r", " ").replace("\n", " ")
+
+
 def send_email(ject, body, to, from_addr="noreply@su.se"):
     try:
-        # Create a text/plain message
+        # Create a text/plain message. Recipients/subject are sanitized
+        # against header injection (defense-in-depth - the notify-group save
+        # path already validates the address CSV via validate_email_csv).
         msg = MIMEText(body)
-        msg["Subject"] = ject
-        msg["From"] = from_addr
-        msg["To"] = to
-    
+        msg["Subject"] = _sanitize_header(ject)
+        msg["From"] = _sanitize_header(from_addr)
+        msg["To"] = _sanitize_header(to)
+
         # Send the message via our own SMTP server.
         s = smtplib.SMTP("localhost")
         s.send_message(msg)
         s.quit()
-    except:
-        # this exception is broad but it is here so the automation won't fail and not update the cert.status. 
-        # otherwise it would send emails every 10 minutes to everyone in the group related to a cert that is about to expire, and is set to manual.
-        # it is considered a temporary fix until a better one comes along.
-        pass
+    except Exception as e:
+        # Swallowed on purpose so the automation loop doesn't fail and skip
+        # updating cert.status (which would cause it to re-mail the group
+        # every 10 minutes for a cert pending manual renewal). Logged so the
+        # failure is visible. Considered a temporary fix until a better one
+        # comes along.
+        sys_logger.error("Failed to send email to %s: %s", to, e)

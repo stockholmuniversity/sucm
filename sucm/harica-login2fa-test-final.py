@@ -28,9 +28,12 @@ csr_file_template = "{}.csr"
 
 session = requests.Session()
 
+
 def fetch_rvt():
     r = session.get(url_base)
-    match = re.search(r'<input name="__RequestVerificationToken".*value="([^"]+)"', r.text)
+    match = re.search(
+        r'<input name="__RequestVerificationToken".*value="([^"]+)"', r.text
+    )
     if not match:
         print("Could not find RequestVerificationToken.")
         sys.exit(1)
@@ -39,17 +42,20 @@ def fetch_rvt():
     print("RequestVerificationToken updated.")
     return rvt
 
+
 def login(token):
     fetch_rvt()
-    login_data = {
-        "email": email,
-        "password": password,
-        "token": token
-    }
+    login_data = {"email": email, "password": password, "token": token}
     session.headers.update({"Content-Type": "application/json;charset=utf-8"})
     r = session.post(f"{url_base}/api/User/Login2FA", json=login_data)
 
-    if not r.ok or not r.text or not re.match(r'^[a-z0-9-_]+\.[a-z0-9-_]+\.[a-z0-9-_]+$', r.text.strip(), re.IGNORECASE):
+    if (
+        not r.ok
+        or not r.text
+        or not re.match(
+            r"^[a-z0-9-_]+\.[a-z0-9-_]+\.[a-z0-9-_]+$", r.text.strip(), re.IGNORECASE
+        )
+    ):
         print("Login failed or JWT token invalid:")
         print(r.text)
         sys.exit(1)
@@ -60,12 +66,15 @@ def login(token):
 
     fetch_rvt()
 
+
 def request_certificate(domain):
     r = session.post(f"{url_base}/api/User/GetCurrentUser")
     print("GetCurrentUser status:", r.status_code)
 
     domain_obj = {"isWildcard": False, "domain": domain, "includeWWW": False}
-    r = session.post(f"{url_base}/api/ServerCertificate/CheckMachingOrganization", json=[domain_obj])
+    r = session.post(
+        f"{url_base}/api/ServerCertificate/CheckMachingOrganization", json=[domain_obj]
+    )
     if not r.ok:
         print("Failed to fetch organization info.")
         print(r.text)
@@ -84,7 +93,20 @@ def request_certificate(domain):
     csr_path = csr_file_template.format(domain)
 
     subprocess.run(["openssl", "genrsa", "-out", key_path, "2048"], check=True)
-    subprocess.run(["openssl", "req", "-new", "-key", key_path, "-subj", f"/CN={domain}", "-out", csr_path], check=True)
+    subprocess.run(
+        [
+            "openssl",
+            "req",
+            "-new",
+            "-key",
+            key_path,
+            "-subj",
+            f"/CN={domain}",
+            "-out",
+            csr_path,
+        ],
+        check=True,
+    )
 
     with open(csr_path, "r") as f:
         csr = f.read()
@@ -99,12 +121,15 @@ def request_certificate(domain):
             "csr": csr,
             "transactionType": "OV",
             "domains": json.dumps([domain_obj]),
-            "isManualCSR": "true"
+            "isManualCSR": "true",
         }
     )
 
     session.headers["Content-Type"] = multipart_payload.content_type
-    r = session.post(f"{url_base}/api/ServerCertificate/RequestServerCertificate", data=multipart_payload)
+    r = session.post(
+        f"{url_base}/api/ServerCertificate/RequestServerCertificate",
+        data=multipart_payload,
+    )
 
     print("RequestServerCertificate status:", r.status_code)
     print(r.text)
@@ -120,6 +145,7 @@ def request_certificate(domain):
         except Exception as e:
             print("Warning: Could not parse certificate ID.")
             print(e)
+
 
 def revoke_certificate(domain):
     if not os.path.exists(local_cert_db):
@@ -148,11 +174,12 @@ def revoke_certificate(domain):
     r = session.post(
         f"{url_base}/api/Certificate/RevokeCertificate",
         json=revoke_data,
-        headers={"Content-Type": "application/json;charset=utf-8"}
+        headers={"Content-Type": "application/json;charset=utf-8"},
     )
 
     print("RevokeCertificate status:", r.status_code)
     print(r.text)
+
 
 def download_certificate(domain):
     if not os.path.exists(local_cert_db):
@@ -174,7 +201,7 @@ def download_certificate(domain):
     r = session.post(
         f"{url_base}/api/Certificate/GetCertificate",
         json={"id": cert_id},
-        headers={"Content-Type": "application/json;charset=utf-8"}
+        headers={"Content-Type": "application/json;charset=utf-8"},
     )
 
     print("GetCertificate status:", r.status_code)
@@ -183,12 +210,12 @@ def download_certificate(domain):
         print(r.text)
         sys.exit(1)
 
-    full_chain = r.text.encode().decode('unicode_escape')  # <-- unescape \n
+    full_chain = r.text.encode().decode("unicode_escape")  # <-- unescape \n
 
     cert_blocks = re.findall(
         r"(-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)",
         full_chain,
-        re.DOTALL
+        re.DOTALL,
     )
 
     if not cert_blocks:
@@ -214,6 +241,7 @@ def download_certificate(domain):
     else:
         print(f"❗ Warning: Private key file {key_file} not found.")
 
+
 def check_key_match(cert_path, key_path):
     try:
         mod_cert = subprocess.check_output(
@@ -229,6 +257,7 @@ def check_key_match(cert_path, key_path):
     except subprocess.CalledProcessError as e:
         print("Error checking modulus match:", e)
 
+
 def save_certificate_mapping(domain, cert_id):
     certs = []
     if os.path.exists(local_cert_db):
@@ -243,6 +272,7 @@ def save_certificate_mapping(domain, cert_id):
     with open(local_cert_db, "w") as f:
         json.dump(certs, f, indent=2)
 
+
 # Main execution
 login(token)
 
@@ -255,4 +285,3 @@ elif command == "download":
 else:
     print(f"Unknown command: {command}")
     sys.exit(1)
-

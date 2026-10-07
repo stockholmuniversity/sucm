@@ -15,6 +15,7 @@
     <div class="row">
         <div class="col-lg-4 form-width">
             <form action="{{ url_for('main.edit_cert_response') }}" method="post" class="card p-3 bg-light">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="form-group">
                     <label for="certificate_authority">Choose certificate authority:</label>
                     <select id="certificate_authority" name="certificate_authority" class="form-control">

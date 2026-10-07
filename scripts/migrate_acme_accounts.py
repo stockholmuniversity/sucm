@@ -125,6 +125,35 @@ TABLES = [
         )
         """,
     ),
+    (
+        "IdCounter",
+        """
+        CREATE TABLE IF NOT EXISTS IdCounter (
+            name VARCHAR(64) NOT NULL,
+            value INT UNSIGNED NOT NULL,
+            PRIMARY KEY (name)
+        )
+        """,
+    ),
+    (
+        # One-time reveal tokens for newly created ACME accounts: holds the
+        # plaintext EAB HMAC key server-side (Fernet-encrypted) keyed by an
+        # unguessable token, so the secret never rides the client-side session
+        # cookie. Consumed (deleted) on first successful read; expired rows are
+        # pruned by the scheduler.
+        "AcmeRevealToken",
+        """
+        CREATE TABLE IF NOT EXISTS AcmeRevealToken (
+            Token VARCHAR(64) NOT NULL,
+            Account_Id INT UNSIGNED NOT NULL,
+            Hmac_Key_Encrypted TEXT NOT NULL,
+            Create_Date DATETIME NOT NULL,
+            PRIMARY KEY (Token),
+            FOREIGN KEY (Account_Id) REFERENCES AcmeAccount(Account_Id)
+                ON DELETE CASCADE
+        )
+        """,
+    ),
 ]
 
 # (table, old_column, new_column, new_column_definition) - only applied if
@@ -328,4 +357,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

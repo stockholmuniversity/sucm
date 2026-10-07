@@ -28,6 +28,12 @@ class SuVault(SucmSecret):
         self.vault_token = None
 
     def init_vault(self):
+        """
+        Authenticates to Vault via AppRole and prepares the metadata DB
+        connection. Raises on failure: operating with an unauthenticated
+        Vault client would only fail later in more confusing ways, so we
+        fail fast here and let the caller surface the error.
+        """
         try:
             print("[DEBUG] Initializing Vault client...")
             self.client = hvac.Client(url=self.vault_addr, token=self.vault_token)
@@ -35,22 +41,25 @@ class SuVault(SucmSecret):
             if not self.vault_token:
                 print("[DEBUG] No existing token found, performing AppRole login...")
                 self.login = self.client.auth.approle.login(
-                    role_id=vault_config["role_id"],
-                    secret_id=vault_config["secret_id"]
+                    role_id=vault_config["role_id"], secret_id=vault_config["secret_id"]
                 )
                 self.vault_token = self.login["auth"]["client_token"]
                 self.client.token = self.vault_token
                 print("[DEBUG] New token obtained via AppRole login.")
 
             if not self.client.is_authenticated():
-                print("[DEBUG] Existing token invalid or expired, performing re-login...")
+                print(
+                    "[DEBUG] Existing token invalid or expired, performing re-login..."
+                )
                 self.login = self.client.auth.approle.login(
-                    role_id=vault_config["role_id"],
-                    secret_id=vault_config["secret_id"]
+                    role_id=vault_config["role_id"], secret_id=vault_config["secret_id"]
                 )
                 self.vault_token = self.login["auth"]["client_token"]
                 self.client.token = self.vault_token
                 print("[DEBUG] Token refreshed via re-login.")
+
+            if not self.client.is_authenticated():
+                raise RuntimeError("Vault AppRole authentication failed")
 
             # Debug print of current TTL
             try:
@@ -71,7 +80,7 @@ class SuVault(SucmSecret):
         except Exception as e:
             sys_logger.error("Failed to initialize SucmVault: %s", e)
             print(f"[DEBUG] Failed to initialize SucmVault: {e}")
-
+            raise
 
     def get_all_paths(self):
         try:
@@ -89,12 +98,17 @@ class SuVault(SucmSecret):
                     if env in servicepathenv:
                         try:
                             servicepathssl = self.client.adapter.request(
-                                "GET", f"v1/secret/vaulttoolsecrets/{servicepath}/{env}?list=true"
-                                )["data"]["keys"]
+                                "GET",
+                                f"v1/secret/vaulttoolsecrets/{servicepath}/{env}?list=true",
+                            )["data"]["keys"]
                             if servicepath is not None and "ssl/" in servicepathssl:
-                                allpaths.append(f"secret/vaulttoolsecrets/{servicepath}{env}ssl/")
+                                allpaths.append(
+                                    f"secret/vaulttoolsecrets/{servicepath}{env}ssl/"
+                                )
                         except Exception as e:
-                            sys_logger.error(f"Failed to add ssl path to allowed path: {e}") 
+                            sys_logger.error(
+                                f"Failed to add ssl path to allowed path: {e}"
+                            )
                             pass
 
             editable_paths = self.list_modifiable_paths(allpaths)
@@ -112,7 +126,7 @@ class SuVault(SucmSecret):
         try:
             for path in paths:
                 data = {"path": path}
-                #data = {"path": path + "*"}
+                # data = {"path": path + "*"}
                 response = self.client.adapter.post(
                     "/v1/sys/capabilities-self", json=data
                 )
@@ -192,9 +206,7 @@ class SuVault(SucmSecret):
                 path=self.secret_path + file_name, mount_point=self.mount_point
             )
             secret_key = self.secret_path + file_name
-            self.secrets_db.remove_record(
-                "meta_data", "secret_key = %s", (secret_key,)
-            )
+            self.secrets_db.remove_record("meta_data", "secret_key", secret_key)
             sys_logger.info("Secret for file %s removed successfully.", file_name)
         except Exception as e:
             sys_logger.error("Failed to remove secret for file %s: %s", file_name, e)

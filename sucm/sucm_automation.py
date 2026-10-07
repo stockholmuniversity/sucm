@@ -2,6 +2,8 @@ from datetime import datetime
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
+from .sucm_acme_nonce import SucmAcmeNonce
+from .sucm_acme_reveal import SucmAcmeRevealToken
 from .sucm_certificate import SucmCertificate
 from .sucm_common import send_email
 from .sucm_globals import ACME_CERT_TYPE, state
@@ -11,6 +13,14 @@ from .sucm_settings import app_logger
 
 def job_function():
     app_logger.info("Job started!")
+    # Housekeeping: purge expired ACME anti-replay nonces so the AcmeNonce
+    # table does not grow unboundedly (consume() only removes nonces actually
+    # presented by a client, so unused issued ones would otherwise linger).
+    SucmAcmeNonce.prune_expired()
+    # Same for one-time ACME credential-reveal tokens whose /created page was
+    # never visited - they hold an (encrypted) EAB HMAC key and should not
+    # linger past their TTL.
+    SucmAcmeRevealToken.prune_expired()
     certs_to_renew = SucmCertificate().get_renewable_certs()
     certs_to_remove = SucmCertificate().get_expired_certs()
     if certs_to_renew:
@@ -29,7 +39,8 @@ def job_function():
                     if cert_obj.status != "Sent Email":
                         for email in emailaddresses.replace(" ", "").split(","):
                             send_email(
-                                cert["common_name"] + " needs manual intervention in SUCM",
+                                cert["common_name"]
+                                + " needs manual intervention in SUCM",
                                 cert["common_name"] + " needs to be renewed",
                                 email,
                             )
@@ -52,10 +63,7 @@ def job_function():
                     )
                     del cert_obj
             except IndexError as e:
-                app_logger.error(
-                    "Error processing certificate"
-                )
-
+                app_logger.error("Error processing certificate")
 
     if certs_to_remove:
         for active_cert in certs_to_remove:
@@ -69,9 +77,7 @@ def job_function():
                     active_cert["expiry_date"],
                 )
             except KeyError as e:
-                app_logger.error(
-                    "Error removing certificate"
-                )
+                app_logger.error("Error removing certificate")
     app_logger.info("Job completed!")
     state["LAST_RUN"] = datetime.now()
 

@@ -15,6 +15,7 @@
                 <td>{{ domain.domain_pattern }}</td>
                 <td>
                     <form method="post" action="{{ url_for('acme_accounts.admin_domains_delete', domain_id=domain.domain_id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <input class="btn btn-danger btn-sm" type="submit" value="Remove">
                     </form>
                 </td>
@@ -23,6 +24,7 @@
         </tbody>
     </table>
     <form method="post" action="{{ url_for('acme_accounts.admin_domains_add', account_id=account.account_id) }}" class="card p-3 bg-light" style="max-width: 500px;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="form-group">
             <label for="domain_pattern">Add domain (exact or *.wildcard):</label>
             <input type="text" class="form-control" id="domain_pattern" name="domain_pattern" placeholder="host.su.se or *.host.su.se" required>

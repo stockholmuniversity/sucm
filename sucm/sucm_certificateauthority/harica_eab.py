@@ -6,7 +6,6 @@ import os
 import re
 import struct
 import subprocess
-import sys
 import time
 from datetime import datetime
 
@@ -20,6 +19,13 @@ from requests_toolbelt.utils import dump
 from ..sucm_common import sucm_db
 from ..sucm_settings import cfg, sys_logger
 from . import SucmCertificateAuthority
+
+
+class HaricaError(Exception):
+    """Raised on any HARICA API failure so WSGI workers / the scheduler are
+    not killed mid-request (the previous sys.exit(1) behaviour terminated the
+    whole process). Callers turn this into a problem+json / error redirect."""
+
 
 CA_PLUGIN_NAME = "HARICA_EAB"
 harica_eab_config = {
@@ -51,7 +57,7 @@ class Harica_EAB(SucmCertificateAuthority):
         )
         if not match:
             print("Could not find RequestVerificationToken.")
-            sys.exit(1)
+            raise HaricaError("Could not find RequestVerificationToken")
         rvt = match.group(1)
         self.session.headers.update({"RequestVerificationToken": rvt})
         print("RequestVerificationToken updated.")
@@ -73,13 +79,17 @@ class Harica_EAB(SucmCertificateAuthority):
                 re.IGNORECASE,
             )
         ):
-            print("Login failed or JWT token invalid:")
-            print(r.text)
-            sys.exit(1)
+            # Do NOT print/raise r.text here: on success it is the JWT bearer
+            # token, and even a failure body can echo credentials - keep the
+            # error to a status-only message.
+            print(f"Login failed or JWT token invalid (HTTP {r.status_code}).")
+            raise HaricaError(
+                f"HARICA login failed or JWT invalid (HTTP {r.status_code})"
+            )
 
         jwt_token = r.text.strip().strip('"')
         self.session.headers.update({"Authorization": jwt_token})
-        print("JWT token added to Authorization header.")
+        print("Logged in to HARICA and set Authorization header.")
 
         self.fetch_rvt()
 
@@ -95,7 +105,6 @@ class Harica_EAB(SucmCertificateAuthority):
         csr = x509.load_pem_x509_csr(csr_pem.encode("utf-8"), default_backend())
 
         ordered: List[str] = []
-        print("before add")
 
         def _add(v):
             if v is None:
@@ -104,7 +113,6 @@ class Harica_EAB(SucmCertificateAuthority):
             if v and v not in ordered:
                 ordered.append(v)
 
-        print("after add")
         # CN first (or fallback)
         try:
             cn_attrs = csr.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
@@ -128,7 +136,6 @@ class Harica_EAB(SucmCertificateAuthority):
     def request_certificate(self, common_name, csr):
         domains_csv = self.domains_string_from_csr_pem(csr, common_name)
         domains_list = domains_csv.split(",") if domains_csv else [common_name]
-        print("----- domains_csv\n" + domains_csv + "-------\n")
         domain_objs = []
         for d in domains_list:
             d = d.strip()
@@ -140,12 +147,6 @@ class Harica_EAB(SucmCertificateAuthority):
                 {"isWildcard": is_wc, "domain": base, "includeWWW": False}
             )
 
-        # Remove me START
-        print(
-            "\ndomains_objs -----\n" + json.dumps(domain_objs, indent=2) + "\n--------"
-        )
-        # Remove me END
-
         r = self.session.post(f"{self.api_base_url}/api/User/GetCurrentUser")
         print("GetCurrentUser status:", r.status_code)
 
@@ -155,14 +156,15 @@ class Harica_EAB(SucmCertificateAuthority):
             json=[domain_obj],
         )
         if not r.ok:
-            print("Failed to fetch organization info.")
-            print(r.text)
-            sys.exit(1)
+            print(f"Failed to fetch organization info (HTTP {r.status_code}).")
+            raise HaricaError(
+                f"Failed to fetch organization info (HTTP {r.status_code})"
+            )
 
         org_data = r.json()
         if not org_data:
             print("No organization matched domain.")
-            sys.exit(1)
+            raise HaricaError("No organization matched domain")
         org_id = org_data[0]["id"]
         org_dn = f"OrganizationId:{org_id}&C:SE&L:Stockholm&O:Stockholms universitet"
         print("Organization ID:", org_id)
@@ -188,16 +190,16 @@ class Harica_EAB(SucmCertificateAuthority):
         )
 
         print("RequestServerCertificate status:", r.status_code)
-        print(r.text)
 
         if r.ok:
             try:
                 cert_id = r.json().get("id")
                 return cert_id
             except Exception as e:
-                print("Warning: Could not parse certificate ID for {common_name}.")
-                print(e)
+                print(f"Warning: Could not parse certificate ID for {common_name}: {e}")
                 return None
+        print(f"RequestServerCertificate failed (HTTP {r.status_code}).")
+        return None
 
     def approve_certificate_request(self, cert_id):
         payload = {"startIndex": 0, "status": "Pending", "filterPostDTOs": []}
@@ -208,19 +210,19 @@ class Harica_EAB(SucmCertificateAuthority):
         )
         if not r.ok:
             print(" Failed to fetch reviewable transactions.")
-            sys.exit(1)
+            raise HaricaError("Failed to fetch reviewable transactions")
 
         transactions = r.json()
         tx = next((t for t in transactions if t.get("transactionId") == cert_id), None)
         if not tx:
             print(f" Transaction ID {cert_id} not found.")
-            sys.exit(1)
+            raise HaricaError(f"Transaction ID {cert_id} not found")
 
         print(f"\n Reviews for transaction {cert_id}:\n")
         reviews = tx.get("reviewGetDTOs", [])
         if not reviews:
             print(" No reviews found.")
-            sys.exit(1)
+            raise HaricaError("No reviews found")
 
         approved_any = False
         for idx, review in enumerate(reviews, start=1):
@@ -252,7 +254,6 @@ class Harica_EAB(SucmCertificateAuthority):
                     approved_any = True
                 else:
                     print(f"      Failed to approve review {rid}: {r.status_code}")
-                    print("     Body:", r.text)
 
         if approved_any:
             print(f"\n Transaction {cert_id} fully approved.")
@@ -276,7 +277,6 @@ class Harica_EAB(SucmCertificateAuthority):
         )
 
         print("RevokeCertificate status:", r.status_code)
-        print(r.text)
 
     def download_certificate(self, cert_id: str, common_name: str):
         """
@@ -297,7 +297,9 @@ class Harica_EAB(SucmCertificateAuthority):
 
         print("GetCertificate status:", r.status_code)
         if not r.ok:
-            raise RuntimeError(f"Failed to get certificate: {r.text}")
+            # r.text may carry server detail, but keep it out of the raised
+            # message (and thus the logs) - status code is enough to diagnose.
+            raise RuntimeError(f"Failed to get certificate (HTTP {r.status_code})")
 
         full_chain = r.text.encode().decode("unicode_escape")
 
@@ -318,11 +320,13 @@ class Harica_EAB(SucmCertificateAuthority):
             leaf_cert_pem.encode(), default_backend()
         )
         expiry_date = cert_obj.not_valid_after_utc
-        # print(f"Expiry date looks like: {expiry_date}")
         return_object = [leaf_cert_pem, expiry_date, full_chain_pem, cert_id]
-        print("Printing some debug data below.")
-        for item in return_object:
-            print(f"Type: {type(item)}, Content: {item}")
+        # Do NOT print the return object: it contains the full certificate PEM
+        # chain. Status-only.
+        print(
+            f"Downloaded certificate chain ({len(cert_blocks)} certs) for "
+            f"{common_name}, expiry {expiry_date}."
+        )
         return return_object
 
     def generate_totp(
@@ -394,7 +398,9 @@ class Harica_EAB(SucmCertificateAuthority):
         - Raise on error so caller won't delete locally.
         """
         self.login(self.order_email, self.order_password, self.order_totp_seed)
-        print(f"[HARICA][revoke][pid={os.getpid()}] entry active_cert_id={active_cert_id} CN={common_name}")
+        print(
+            f"[HARICA][revoke][pid={os.getpid()}] entry active_cert_id={active_cert_id} CN={common_name}"
+        )
 
         # Look up HARICA's transaction id for this active certificate
         try:
@@ -403,11 +409,15 @@ class Harica_EAB(SucmCertificateAuthority):
                 (active_cert_id,),
             )
         except Exception as e:
-            print(f"[HARICA][revoke] SELECT failed for ActiveCertificate_Id={active_cert_id}: {e}")
+            print(
+                f"[HARICA][revoke] SELECT failed for ActiveCertificate_Id={active_cert_id}: {e}"
+            )
             raise
 
         harica_id = rows[0][0] if rows and rows[0] else None
-        print(f"[HARICA][revoke] ActiveCertificate_Id={active_cert_id} -> Cert_Id_Harica={harica_id}")
+        print(
+            f"[HARICA][revoke] ActiveCertificate_Id={active_cert_id} -> Cert_Id_Harica={harica_id}"
+        )
 
         if not harica_id:
             msg = f"Missing Cert_Id_Harica for ActiveCertificate_Id={active_cert_id}"
@@ -417,7 +427,9 @@ class Harica_EAB(SucmCertificateAuthority):
         # Call the actual HARICA revoke. Keep both variants in case your current
         # revoke_certificate doesn't accept common_name yet.
         try:
-            print(f"[HARICA][revoke] calling revoke_certificate(transactionId={harica_id})")
+            print(
+                f"[HARICA][revoke] calling revoke_certificate(transactionId={harica_id})"
+            )
             try:
                 self.revoke_certificate(harica_id, common_name=common_name)
             except TypeError:
@@ -425,5 +437,7 @@ class Harica_EAB(SucmCertificateAuthority):
                 self.revoke_certificate(harica_id)
             print(f"[HARICA][revoke] revoke_certificate OK")
         except Exception as e:
-            print(f"[HARICA][revoke][ERROR] HARICA API error for transactionId={harica_id}: {e}")
+            print(
+                f"[HARICA][revoke][ERROR] HARICA API error for transactionId={harica_id}: {e}"
+            )
             raise

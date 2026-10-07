@@ -60,6 +60,7 @@
 			<div class="collapse navbar-collapse" id="navbarNav">
 
 <ul class="navbar-nav">
+    {% if "cert_manager" in current_roles %}
     <li class="nav-item {% if request.path == url_for('main.index') %}active{% endif %}">
         <a class="nav-link" href="{{ url_for('main.index') }}">Certificates</a>
     </li>
@@ -71,18 +72,23 @@
     <li class="nav-item {% if request.path == url_for('main.automation') %}active{% endif %}">
         <a class="nav-link" href="{{ url_for('main.automation') }}">Automation</a>
     </li>
+    {% endif %}
 
     <li class="nav-item {% if request.path == url_for('main.faq') %}active{% endif %}">
         <a class="nav-link" href="{{ url_for('main.faq') }}">FAQ</a>
     </li>
 
+    {% if "acme_requester" in current_roles %}
     <li class="nav-item {% if request.path == url_for('acme_accounts.request_account') %}active{% endif %}">
         <a class="nav-link" href="{{ url_for('acme_accounts.request_account') }}">Request ACME account</a>
     </li>
+    {% endif %}
 
+    {% if "acme_admin" in current_roles %}
     <li class="nav-item {% if request.path == url_for('acme_accounts.admin_list') %}active{% endif %}">
         <a class="nav-link" href="{{ url_for('acme_accounts.admin_list') }}">ACME accounts (admin)</a>
     </li>
+    {% endif %}
 </ul>
 				</div>
 			</nav>

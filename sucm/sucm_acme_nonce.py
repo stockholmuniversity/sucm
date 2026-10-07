@@ -27,28 +27,32 @@ class SucmAcmeNonce:
     @staticmethod
     def consume(nonce):
         """
-        Atomically checks a nonce is known/unexpired and deletes it so it
-        cannot be reused. Returns True if the nonce was valid.
+        Atomically consumes a nonce, returning True iff it was valid.
+
+        Implemented as a single conditional DELETE: the row is removed only if
+        it exists AND is still within its TTL, and the affected-row count tells
+        us which. Because the delete is one statement, two concurrent requests
+        presenting the same nonce cannot both succeed - whoever's DELETE commits
+        first wins and the other sees 0 rows (the previous SELECT-then-DELETE
+        left a replay window between the two queries). A nonce is single-use
+        whether it was valid or already expired.
         """
         if not nonce:
             return False
 
-        rows = sucm_db.execute_select_query(
-            "SELECT Create_Date FROM AcmeNonce WHERE Nonce = %s", (nonce,)
+        cutoff = datetime.now() - timedelta(minutes=NONCE_TTL_MINUTES)
+        deleted = sucm_db.execute_modify_rows(
+            "DELETE FROM AcmeNonce WHERE Nonce = %s AND Create_Date >= %s",
+            (nonce, cutoff),
         )
-        # Always delete on a hit, whether expired or not, so a nonce can
-        # never be replayed a second time regardless of outcome.
-        sucm_db.execute_modify_query(
-            "DELETE FROM AcmeNonce WHERE Nonce = %s", (nonce,)
-        )
-        if not rows:
-            return False
+        if deleted == 1:
+            return True
 
-        create_date = rows[0][0]
-        if datetime.now() - create_date > timedelta(minutes=NONCE_TTL_MINUTES):
-            return False
-
-        return True
+        # 0 rows: either the nonce never existed, or it existed but was expired.
+        # Clean up a possibly-expired leftover so the table doesn't accumulate
+        # dead nonces (a no-op if it never existed).
+        sucm_db.execute_modify_query("DELETE FROM AcmeNonce WHERE Nonce = %s", (nonce,))
+        return False
 
     @staticmethod
     def prune_expired():

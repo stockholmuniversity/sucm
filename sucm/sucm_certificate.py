@@ -74,9 +74,7 @@ class SucmCertificate:
             self.fullchain_filename = self.common_name + ".fullchain"
 
     def set_current_class_values_from_db(self):
-        cert_data = sucm_db.get_records(
-            "Certificate", "Cert_Id = %s", (self.cert_id,)
-        )[0]
+        cert_data = sucm_db.get_records("Certificate", "Cert_Id", self.cert_id)[0]
         attrs = {
             "certificate_authority_id": 1,
             "common_name": 2,
@@ -90,7 +88,7 @@ class SucmCertificate:
             "secret_path": 10,
             "notify_group": 11,
             "create_date": 12,
-            "expiry_date": 13
+            "expiry_date": 13,
         }
 
         for attr, index in attrs.items():
@@ -116,7 +114,7 @@ class SucmCertificate:
             raise TypeError(
                 f"{plugin_class_name} is not a valid certificate authority plugin"
             )
-        #print(f"ca_detail is: {ca_detail}")
+        # print(f"ca_detail is: {ca_detail}")
         self.cert_authority = plugin_class()
 
     @staticmethod
@@ -161,9 +159,7 @@ class SucmCertificate:
         if cert_id is None:
             all_data = sucm_db.get_records("ActiveCertificate")
         else:
-            all_data = sucm_db.get_records(
-                "ActiveCertificate", "Cert_Id = %s", (cert_id,)
-            )
+            all_data = sucm_db.get_records("ActiveCertificate", "Cert_Id", cert_id)
         data_list = []
         for data in all_data:
             details = self._create_active_cert_dict(data)
@@ -172,19 +168,19 @@ class SucmCertificate:
 
     def delete_active_cert(self, active_cert_id):
         sucm_db.remove_record(
-            "ActiveCertificate", "ActiveCertificate_Id = %s", (active_cert_id,)
+            "ActiveCertificate", "ActiveCertificate_Id", active_cert_id
         )
 
     def get_active_cert_detail(self, active_cert_id):
         data = sucm_db.get_records(
-            "ActiveCertificate", "ActiveCertificate_Id = %s", (active_cert_id,)
+            "ActiveCertificate", "ActiveCertificate_Id", active_cert_id
         )[0]
         details = self._create_active_cert_dict(data)
         return details
 
     def get_active_cert_pem(self, active_cert_id):
         data = sucm_db.get_records(
-            "ActiveCertificate", "ActiveCertificate_Id = %s", (active_cert_id,)
+            "ActiveCertificate", "ActiveCertificate_Id", active_cert_id
         )[0]
         details = data[3]
         return details
@@ -223,7 +219,7 @@ class SucmCertificate:
         if cert_id is None:
             cert_id = self.cert_id
         try:
-            data = sucm_db.get_records("Certificate", "Cert_Id = %s", (cert_id,))[0]
+            data = sucm_db.get_records("Certificate", "Cert_Id", cert_id)[0]
             details = self._create_cert_dict(data)
             return details
         except IndexError:
@@ -231,18 +227,20 @@ class SucmCertificate:
 
     def get_common_name(self, common_name):
         try:
-            data = sucm_db.get_records(
-                "Certificate", "Common_Name = %s", (common_name,)
-            )[0]
+            data = sucm_db.get_records("Certificate", "Common_Name", common_name)[0]
             details = self._create_cert_dict(data)
             return details
         except IndexError:
             return {}
 
-    def get_renewable_certs(self, days_until_expiry="30"):
-        all_data = sucm_db.get_records(
-            "Certificate",
-            f"DATE(Expiry_Date) < (NOW() + INTERVAL {days_until_expiry} DAY)",
+    def get_renewable_certs(self, days_until_expiry=30):
+        # days_until_expiry is coerced to int and only ever inlined as an
+        # integer - never parameterized as a raw string fragment.
+        days = int(days_until_expiry)
+        all_data = sucm_db.execute_select_query(
+            "SELECT * FROM Certificate "
+            "WHERE DATE(Expiry_Date) < (NOW() + INTERVAL %s DAY)",
+            (days,),
         )
         data_list = []
         for data in all_data:
@@ -251,8 +249,8 @@ class SucmCertificate:
         return data_list
 
     def get_expired_certs(self):
-        all_data = sucm_db.get_records(
-            "ActiveCertificate", "DATE(Expiry_Date) < CURDATE()"
+        all_data = sucm_db.execute_select_query(
+            "SELECT * FROM ActiveCertificate WHERE DATE(Expiry_Date) < CURDATE()"
         )
         data_list = []
         for data in all_data:
@@ -261,12 +259,12 @@ class SucmCertificate:
         return data_list
 
     def get_next_cert_id(self):
-        return sucm_db.get_next_available_id("Certificate")
+        return sucm_db.claim_next_id("Certificate")
 
     def delete_cert(self, cert_id=None):
         if cert_id is None:
             cert_id = self.cert_id
-        sucm_db.remove_record("Certificate", "Cert_Id = %s", (cert_id,))
+        sucm_db.remove_record("Certificate", "Cert_Id", cert_id)
 
     def _fetch_csr(self):
         secret_backend = sucm_secret
@@ -274,7 +272,7 @@ class SucmCertificate:
         self.csr = secret_backend.read_secret(self.csr_filename)
 
     def commit_changes_to_db(self):
-        #print(f"Committing changes to db. certificate_authority_id: {self.certificate_authority_id}")
+        # print(f"Committing changes to db. certificate_authority_id: {self.certificate_authority_id}")
         if self.status is None:
             self.status = "New"
         cert_data = {
@@ -296,7 +294,7 @@ class SucmCertificate:
         sucm_db.add_update_record("Certificate", cert_data)
 
     def commit_fullchain_to_db(self):
-        active_cert_id = sucm_db.get_next_available_id("ActiveCertificate")
+        active_cert_id = sucm_db.claim_next_id("ActiveCertificate")
         active_cert_data = {
             "ActiveCertificate_Id": active_cert_id,
             "Cert_Id": self.cert_id,
@@ -400,42 +398,62 @@ class SucmCertificate:
         self.commit_changes_to_db()
 
     def revoke_cert(self, active_cert_id):
-        print(f"[REVOKE][svc][pid={os.getpid()}] entry active_cert_id={active_cert_id} self_id={id(self)} "
-              f"preset_CA_Id={getattr(self, 'certificate_authority_id', None)} preset_CN={getattr(self, 'common_name', None)}")
+        print(
+            f"[REVOKE][svc][pid={os.getpid()}] entry active_cert_id={active_cert_id} self_id={id(self)} "
+            f"preset_CA_Id={getattr(self, 'certificate_authority_id', None)} preset_CN={getattr(self, 'common_name', None)}"
+        )
 
         # Always derive CA from DB (authoritative)
         active = self.get_active_cert_detail(active_cert_id=active_cert_id)  # dict
-        print(f"[REVOKE][svc] loaded active: cert_id={active.get('cert_id')} cn={active.get('common_name')}")
-        cert   = self.get_certificate_detail(active["cert_id"])              # dict
+        print(
+            f"[REVOKE][svc] loaded active: cert_id={active.get('cert_id')} cn={active.get('common_name')}"
+        )
+        cert = self.get_certificate_detail(active["cert_id"])  # dict
         ca_id_db = cert["certificate_authority_id"]
-        print(f"[REVOKE][svc] loaded cert: CA_Id(db)={ca_id_db} cn={cert.get('common_name')}")
+        print(
+            f"[REVOKE][svc] loaded cert: CA_Id(db)={ca_id_db} cn={cert.get('common_name')}"
+        )
 
         # Second lock: verify/override preset CA with DB truth
         ca_id_preset = getattr(self, "certificate_authority_id", None)
         if ca_id_preset != ca_id_db:
-            print(f"[REVOKE][svc] overriding preset CA_Id={ca_id_preset} -> DB CA_Id={ca_id_db}")
+            print(
+                f"[REVOKE][svc] overriding preset CA_Id={ca_id_preset} -> DB CA_Id={ca_id_db}"
+            )
             self.certificate_authority_id = ca_id_db
         self.common_name = cert.get("common_name")
 
         print(f"[REVOKE][svc] loading plugin for CA_Id={self.certificate_authority_id}")
         self._load_certificate_authority()
         plugin = self.cert_authority
-        print(f"[REVOKE][svc] loaded plugin: class={type(plugin).__name__} module={type(plugin).__module__} obj_id={id(plugin)}")
+        print(
+            f"[REVOKE][svc] loaded plugin: class={type(plugin).__name__} module={type(plugin).__module__} obj_id={id(plugin)}"
+        )
 
         # (Optional sanity: compute expected module name; ignore errors if your CA row shape differs)
         try:
-            ca_row = self.get_certificate_authority_detail(self.certificate_authority_id)
+            ca_row = self.get_certificate_authority_detail(
+                self.certificate_authority_id
+            )
             name = (ca_row["Name"] if isinstance(ca_row, dict) else ca_row[1]).strip()
-            name_type = (ca_row["Name_Type"] if isinstance(ca_row, dict) else ca_row[2]).strip()
-            expected_module = f"sucm.sucm_certificateauthority.{name.lower()}_{name_type.lower()}"
+            name_type = (
+                ca_row["Name_Type"] if isinstance(ca_row, dict) else ca_row[2]
+            ).strip()
+            expected_module = (
+                f"sucm.sucm_certificateauthority.{name.lower()}_{name_type.lower()}"
+            )
             print(f"[REVOKE][svc] expected plugin module={expected_module}")
             if type(plugin).__module__ != expected_module:
-                print(f"[REVOKE][svc][WARN] plugin module mismatch: actual={type(plugin).__module__} expected={expected_module}")
+                print(
+                    f"[REVOKE][svc][WARN] plugin module mismatch: actual={type(plugin).__module__} expected={expected_module}"
+                )
         except Exception as e:
             print(f"[REVOKE][svc] (sanity) could not compute expected module: {e}")
 
         fullchain = self.get_active_cert_pem(active_cert_id)
-        print(f"[REVOKE][svc] got fullchain_pem length={len(fullchain) if fullchain else 0}")
+        print(
+            f"[REVOKE][svc] got fullchain_pem length={len(fullchain) if fullchain else 0}"
+        )
 
         print(f"[REVOKE][svc] invoking plugin.revoke_cert(...)")
         plugin.revoke_cert(fullchain, active_cert_id, common_name=self.common_name)
@@ -445,14 +463,11 @@ class SucmCertificate:
         self.delete_active_cert(active_cert_id)
         print(f"[REVOKE][svc] delete done; revoke flow finished")
 
-
-
-
         # fullchain = self.get_active_cert_detail(active_cert_id)["cert_pem"]
-        #fullchain = self.get_active_cert_pem(active_cert_id)
-        #self._load_certificate_authority()
-        #self.cert_authority.revoke_cert(fullchain, active_cert_id)
-        #self.delete_active_cert(active_cert_id)
+        # fullchain = self.get_active_cert_pem(active_cert_id)
+        # self._load_certificate_authority()
+        # self.cert_authority.revoke_cert(fullchain, active_cert_id)
+        # self.delete_active_cert(active_cert_id)
 
     @staticmethod
     def _split_pem_chain(pem_chain):
@@ -477,8 +492,7 @@ class SucmCertificate:
             self._fetch_csr()
 
             self._load_certificate_authority()
-            cert_data = self.cert_authority.fetch_cert(self.csr,
-                    self.common_name)
+            cert_data = self.cert_authority.fetch_cert(self.csr, self.common_name)
             self.crt = cert_data[0]
             self.expiry_date = cert_data[1]
             self.fullchain = cert_data[2]
@@ -495,7 +509,9 @@ class SucmCertificate:
             new_cachain = ""
             try:
                 for index, cert in enumerate(fullchain_certs):
-                    part = x509.load_pem_x509_certificate(cert.encode(), default_backend())
+                    part = x509.load_pem_x509_certificate(
+                        cert.encode(), default_backend()
+                    )
                     print(f"Inspecting index #{index} in .pem")
                     print(f"Subject: {str(part.subject)}")
                     print(f"Issuer: {str(part.issuer)}")
@@ -506,17 +522,23 @@ class SucmCertificate:
                         print("Passing leaf cert.")
                         pass
                     else:
-                        print(f"Joining cert for {part.subject.rfc4514_string()} to cachain.")
-                        new_cachain = new_cachain+cert+"\n"
+                        print(
+                            f"Joining cert for {part.subject.rfc4514_string()} to cachain."
+                        )
+                        new_cachain = new_cachain + cert + "\n"
                     print("Passing the newly constructed 2 part cachain.")
                     self.cachain = new_cachain.rstrip()
             except Exception as e:
                 print(f"Ca chain logic failed because: {e}")
                 try:
-                    print("Falling back to passing what we assume to be the intermediate cert.")
+                    print(
+                        "Falling back to passing what we assume to be the intermediate cert."
+                    )
                     self.cachain = fullchain_certs[-2]
                 except Exception as e2:
-                    print("Fallback to the presumed intermediate cert failed as well, because: {e2}")
+                    print(
+                        "Fallback to the presumed intermediate cert failed as well, because: {e2}"
+                    )
                     print("So we fall back even further and pass None.")
                     self.cachain = None
 
@@ -545,7 +567,7 @@ class SucmCertificate:
     def get_certificate_authority_detail(self, certificate_authority_id=None):
         print("Getting certificate authority detail.")
         return sucm_db.get_records(
-            "CertificateAuthority", "CA_Id = %s", (certificate_authority_id,)
+            "CertificateAuthority", "CA_Id", certificate_authority_id
         )[0]
 
     def get_all_certificate_authority(self):

@@ -21,6 +21,7 @@ josepy = "*"
 pyopenssl = "*"
 apscheduler = "*"
 requests_toolbelt = "*"
+Flask-WTF = "*"
 
 [tool.poetry.dev-dependencies]
 isort = "^5.12.0"

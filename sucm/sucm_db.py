@@ -84,39 +84,141 @@ class SucmMysql:
             sys_logger.error("Error while executing MODIFY query: %s", error)
             return "Failure"
 
-    def get_next_available_id(self, table_name):
+    # Executes an INSERT/UPDATE/DELETE and returns the number of affected rows,
+    # so callers can make conditional writes atomic (e.g. check-and-set guards
+    # like "UPDATE ... WHERE jwk IS NULL" and detect whether they won a race).
+    def execute_modify_rows(self, sql_command, values):
         try:
-            sql_command = f"SELECT * FROM {table_name}"
-            all_records = self.execute_select_query(sql_command)
-            next_id = all_records[-1][0] + 1
+            connection = self.get_connection()
+            cursor = connection.cursor()
+            cursor.execute(sql_command, values)
+            connection.commit()
+            rowcount = cursor.rowcount
+            self.close_connection(connection)
             sys_logger.debug(
-                "Executed SELECT query: %s, to find the next available id: %s",
-                sql_command,
-                next_id,
+                "Executed MODIFY query: %s (affected rows: %s)", sql_command, rowcount
             )
-            return next_id
-        except IndexError:  # if db is empty
-            sys_logger.error(
-                "Error while executing SELECT query to find next ID for %s, the db is empty and will return starting id.",
-                table_name,
-            )
-            return (
-                100
-                if table_name == "Certificate"
-                else (1000 if table_name == "NotifyGroup" else 10000)
-            )
+            return rowcount
+        except (Exception, mysql.connector.Error) as error:
+            sys_logger.error("Error while executing MODIFY query: %s", error)
+            return -1
 
-    def get_records(self, table_name, condition=None, params=None):
+    # Tables whose primary key is an app-assigned integer (not AUTO_INCREMENT),
+    # mapped to (pk column, first id to hand out when the table is empty).
+    # Used by get_next_available_id()/claim_next_id() to compute MAX(pk)+1.
+    # Keeping this as an explicit allow-list means `table_name` can never be
+    # attacker-influenced SQL - only these known tables/columns are reachable.
+    _ID_TABLES = {
+        "Certificate": ("Cert_Id", 100),
+        "ActiveCertificate": ("ActiveCertificate_Id", 10000),
+        "NotifyGroup": ("Group_Id", 1000),
+        "AcmeAccount": ("Account_Id", 10000),
+        "AcmeAccountDomain": ("Domain_Id", 10000),
+        "AcmeOrder": ("Order_Id", 10000),
+        "AcmeAuthorization": ("Authz_Id", 10000),
+    }
+
+    def get_next_available_id(self, table_name):
         """
-        `condition` must be a static, non-user-controlled WHERE clause (e.g.
-        "Cert_Id = %s"). Any value coming from user/attacker-reachable input
-        MUST be passed via `params` (a tuple) and referenced with %s
-        placeholders in `condition` - never interpolated into the string.
+        Next free primary-key value for `table_name` (MAX(pk) + 1).
+
+        NOTE: this read is inherently racy - see claim_next_id() for the
+        race-free variant. This is kept for the common single-threaded callers
+        (the web UI and the ACME order/finalize path are low-concurrency), but
+        `table_name` is at least confined to the known _ID_TABLES allow-list so
+        it can't be used as an injection vector.
         """
+        if table_name not in self._ID_TABLES:
+            sys_logger.error(
+                "get_next_available_id called for unknown table: %r", table_name
+            )
+            return None
+        pk_column, start_id = self._ID_TABLES[table_name]
+        try:
+            rows = self.execute_select_query(
+                f"SELECT MAX({pk_column}) FROM {table_name}"
+            )
+            current_max = rows[0][0] if rows else None
+            next_id = (current_max + 1) if current_max is not None else start_id
+            sys_logger.debug("Next available id for %s: %s", table_name, next_id)
+            return next_id
+        except (Exception, mysql.connector.Error) as error:
+            sys_logger.error(
+                "Error finding next available id for %s: %s", table_name, error
+            )
+            return None
+
+    def claim_next_id(self, table_name):
+        """
+        Race-free next-id allocation backed by the `IdCounter` table
+        (`name` PK, `value` INT). The increment is a single atomic
+        INSERT ... ON DUPLICATE KEY UPDATE, so two concurrent claimers always
+        get distinct values - unlike get_next_available_id(), whose
+        read-then-compute is racy across the app's separate DB connections
+        (web UI, ACME finalize, and the scheduler each open their own).
+
+        The counter is seeded from the table's current MAX(pk) on first use so
+        existing rows are never collided with. Returns the allocated id, or
+        None on error / unknown table.
+
+        Requires (one-time, idempotent):
+            CREATE TABLE IF NOT EXISTS IdCounter (
+                name VARCHAR(64) NOT NULL PRIMARY KEY,
+                value INT UNSIGNED NOT NULL
+            );
+        """
+        if table_name not in self._ID_TABLES:
+            sys_logger.error("claim_next_id called for unknown table: %r", table_name)
+            return None
+        pk_column, start_id = self._ID_TABLES[table_name]
+
+        # Seed the counter from the live table once, then bump it atomically.
+        # LAST_INSERT_ID(value) lets us read back the post-increment counter
+        # on the same connection without a second round-trip.
+        seed_rows = self.execute_select_query(
+            f"SELECT COALESCE(MAX({pk_column}), %s) FROM {table_name}", (start_id - 1,)
+        )
+        seed = seed_rows[0][0] if seed_rows else start_id - 1
+
+        connection = self.get_connection()
+        if connection is None:
+            return None
+        try:
+            cursor = connection.cursor()
+            cursor.execute(
+                "INSERT INTO IdCounter (name, value) VALUES (%s, LAST_INSERT_ID(%s + 1)) "
+                "ON DUPLICATE KEY UPDATE value = LAST_INSERT_ID(value + 1)",
+                (table_name, seed),
+            )
+            connection.commit()
+            cursor.execute("SELECT LAST_INSERT_ID()")
+            allocated = cursor.fetchone()[0]
+            return allocated
+        except (Exception, mysql.connector.Error) as error:
+            sys_logger.error("Error claiming next id for %s: %s", table_name, error)
+            return None
+        finally:
+            self.close_connection(connection)
+
+    def get_records(self, table_name, column=None, value=None):
+        """
+        SELECT * FROM `table_name` [WHERE `column` = %s].
+
+        The WHERE clause is built internally from a bare column name; callers
+        never supply raw SQL fragments. `column` is validated to contain only
+        word characters (letters/digits/underscore) so it cannot be used to
+        inject SQL. `value` (attacker-reachable or not) is always passed via
+        a parameterized placeholder.
+        """
+        if column is not None and not column.isidentifier():
+            sys_logger.error("Rejected invalid column name in get_records: %r", column)
+            return None
         try:
             sql_command = f"SELECT * FROM {table_name}"
-            if condition and "None" not in condition:
-                sql_command += f" WHERE {condition}"
+            params = None
+            if column is not None:
+                sql_command += f" WHERE {column} = %s"
+                params = (value,)
             records = self.execute_select_query(sql_command, params)
             sys_logger.debug("Executed SELECT query: %s", sql_command)
             return records
@@ -124,13 +226,20 @@ class SucmMysql:
             sys_logger.error("Error while executing SELECT query: %s", error)
             return None
 
-    def remove_record(self, table_name, condition, params=None):
+    def remove_record(self, table_name, column, value):
         """
-        Same rule as get_records(): `condition` must be static, with any
-        user-supplied value passed via `params` and referenced as %s.
+        DELETE FROM `table_name` WHERE `column` = %s.
+
+        Same rule as get_records(): the WHERE clause is built internally from
+        a validated bare column name, and `value` is always parameterized.
         """
-        sql_command = f"DELETE FROM {table_name} WHERE {condition}"
-        result = self.execute_modify_query(sql_command, params or ())
+        if not column.isidentifier():
+            sys_logger.error(
+                "Rejected invalid column name in remove_record: %r", column
+            )
+            return "Failure"
+        sql_command = f"DELETE FROM {table_name} WHERE {column} = %s"
+        result = self.execute_modify_query(sql_command, (value,))
         if result == "Success":
             sys_logger.debug("Executed MODIFY query: %s", sql_command)
         return result

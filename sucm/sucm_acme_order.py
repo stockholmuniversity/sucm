@@ -13,6 +13,11 @@ clients (certbot et al.) see nothing to solve and proceed straight to
 "finalize". This was an explicit, accepted design decision for this
 internal-only tool; it is not appropriate for anything facing untrusted
 clients.
+
+Wildcard certificates ("*.example.se") are intentionally NOT supported: any
+identifier beginning with "*." is rejected at order-creation time. This is
+a deliberate design decision (the deployment does not want to issue
+wildcard certs via ACME), enforced in create_order().
 """
 
 import json
@@ -32,13 +37,31 @@ from .sucm_settings import cfg, audit_logger
 ORDER_TTL_DAYS = 7
 AUTHZ_TTL_DAYS = 7
 
-# POC-hardcoded ACME issuance settings (not user-selectable, unlike the
-# manual "add cert" form - an ACME client has no UI to pick these). Move
-# these into sucm_conf.ini's [ACME] section later if they need to vary
-# per-environment.
-ACME_CA_PLUGIN_NAME = "Harica_EAB"
-ACME_SECRET_PATH = "SUCMTEST/test/ssl/"
+# ACME issuance settings are read from sucm_conf.ini's [ACME] section (see
+# _load_acme_config below). They are intentionally NOT user-selectable,
+# unlike the manual "add cert" form - an ACME client has no UI to pick
+# these. They were previously hardcoded here (POC scope); they MUST be set
+# in config before production, otherwise issuance fails closed.
+ACME_CA_PLUGIN_NAME = None
+ACME_SECRET_PATH = None
 ACME_NOTIFY_GROUP_ID = None
+
+
+def _load_acme_config():
+    """
+    Reads the [ACME] issuance settings from config into the module-level
+    constants. Fails closed (leaves them None) if the section/keys are
+    absent so that finalize_order() raises rather than issuing into a
+    wrong/default location.
+    """
+    global ACME_CA_PLUGIN_NAME, ACME_SECRET_PATH, ACME_NOTIFY_GROUP_ID
+    if cfg.has_section("ACME"):
+        ACME_CA_PLUGIN_NAME = cfg.get("ACME", "ca_plugin_name", fallback=None)
+        ACME_SECRET_PATH = cfg.get("ACME", "secret_path", fallback=None)
+        ACME_NOTIFY_GROUP_ID = cfg.get("ACME", "notify_group_id", fallback=None)
+
+
+_load_acme_config()
 
 
 class SucmAcmeOrderError(Exception):
@@ -80,14 +103,24 @@ class SucmAcmeOrder:
         }
 
     def get_next_order_id(self):
-        return sucm_db.get_next_available_id("AcmeOrder")
+        # Atomic counter-based allocation (race-free across the concurrent
+        # web/ACME/scheduler DB connections); see SucmMysql.claim_next_id.
+        return sucm_db.claim_next_id("AcmeOrder")
 
     def get_next_authz_id(self):
-        return sucm_db.get_next_available_id("AcmeAuthorization")
+        return sucm_db.claim_next_id("AcmeAuthorization")
 
     def get_orders_for_cert(self, cert_id):
         rows = sucm_db.execute_select_query(
             "SELECT * FROM AcmeOrder WHERE Cert_Id = %s", (cert_id,)
+        )
+        if not rows:
+            return []
+        return [self._order_row_to_dict(row) for row in rows]
+
+    def get_orders_for_account(self, account_id):
+        rows = sucm_db.execute_select_query(
+            "SELECT * FROM AcmeOrder WHERE Account_Id = %s", (account_id,)
         )
         if not rows:
             return []
@@ -138,6 +171,16 @@ class SucmAcmeOrder:
                     acme_type="unsupportedIdentifier",
                 )
             value = identifier.get("value", "")
+            # Wildcard certificates are intentionally NOT supported by this
+            # ACME server (an explicit design decision, not an oversight):
+            # reject them outright at order time. See the module docstring /
+            # AGENTS.md.
+            if value.lstrip().startswith("*."):
+                raise SucmAcmeOrderError(
+                    "Wildcard identifiers are not supported by this server",
+                    acme_type="rejectedIdentifier",
+                    status_code=403,
+                )
             if not account_model.is_domain_allowed(account_id, value):
                 raise SucmAcmeOrderError(
                     f"{value} is not on this account's allowed domain list",
@@ -191,7 +234,9 @@ class SucmAcmeOrder:
             san_ext = csr.extensions.get_extension_for_class(
                 x509.SubjectAlternativeName
             )
-            names.update(name.lower() for name in san_ext.value.get_values_for_type(x509.DNSName))
+            names.update(
+                name.lower() for name in san_ext.value.get_values_for_type(x509.DNSName)
+            )
         except x509.ExtensionNotFound:
             pass
         return common_name, names
@@ -219,7 +264,9 @@ class SucmAcmeOrder:
         """
         order = self.get_order(order_id)
         if not order:
-            raise SucmAcmeOrderError("No such order", acme_type="malformed", status_code=404)
+            raise SucmAcmeOrderError(
+                "No such order", acme_type="malformed", status_code=404
+            )
         if order["status"] != "ready":
             raise SucmAcmeOrderError(
                 f"Order is not ready to be finalized (status: {order['status']})",
@@ -233,7 +280,9 @@ class SucmAcmeOrder:
             raise SucmAcmeOrderError(f"Could not parse CSR: {exc}") from exc
 
         if not csr.is_signature_valid:
-            raise SucmAcmeOrderError("CSR signature does not verify against its own public key")
+            raise SucmAcmeOrderError(
+                "CSR signature does not verify against its own public key"
+            )
 
         common_name, csr_names = self._csr_identifiers(csr)
         order_names = {i["value"].lower() for i in order["identifiers"]}
@@ -250,6 +299,16 @@ class SucmAcmeOrder:
             # back to an arbitrary authorized name if a client omits CN.
             common_name = sorted(csr_names)[0]
 
+        # Fail closed if the [ACME] issuance settings are not configured -
+        # never issue into a default/test location.
+        if not ACME_CA_PLUGIN_NAME or not ACME_SECRET_PATH:
+            raise SucmAcmeOrderError(
+                "ACME issuance is not configured on this server "
+                "([ACME] ca_plugin_name / secret_path missing from config)",
+                acme_type="serverInternal",
+                status_code=500,
+            )
+
         existing = SucmCertificate().get_common_name(common_name)
         if existing and existing.get("cert_type") != ACME_CERT_TYPE:
             raise SucmAcmeOrderError(
@@ -259,7 +318,9 @@ class SucmAcmeOrder:
                 status_code=409,
             )
 
-        cert_id = existing["cert_id"] if existing else SucmCertificate().get_next_cert_id()
+        cert_id = (
+            existing["cert_id"] if existing else SucmCertificate().get_next_cert_id()
+        )
         subject_alt = ", ".join(sorted(csr_names))
 
         cert_conf = {
@@ -295,7 +356,9 @@ class SucmAcmeOrder:
                 "ACME order %s finalize failed for %s: %s", order_id, common_name, exc
             )
             raise SucmAcmeOrderError(
-                f"Certificate issuance failed: {exc}", acme_type="serverInternal", status_code=500
+                f"Certificate issuance failed: {exc}",
+                acme_type="serverInternal",
+                status_code=500,
             ) from exc
 
         sucm_db.execute_modify_query(
@@ -303,6 +366,9 @@ class SucmAcmeOrder:
             ("valid", order_id),
         )
         audit_logger.info(
-            "ACME order %s finalized: cert_id=%s common_name=%s", order_id, cert_id, common_name
+            "ACME order %s finalized: cert_id=%s common_name=%s",
+            order_id,
+            cert_id,
+            common_name,
         )
         return self.get_order(order_id)

@@ -129,8 +129,9 @@ The snippet below is a static, illustrative copy - keep both in sync manually.)*
 hand - see the script's `--help`/`--dry-run` for details. Statements below are
 kept here as the canonical schema reference. If you already ran an earlier
 version of this script, re-run it - it renames the old
-Kid/Hmac_Key_Hash/Jwk_Thumbprint columns, adds Name/Topdesk_Ticket, and drops
-the unused Owner_Contact column in place.)*
+Kid/Hmac_Key_Hash/Jwk_Thumbprint columns, adds Name/Topdesk_Ticket, drops
+the unused Owner_Contact column, and creates the `IdCounter` table used for
+atomic app-side primary-key allocation.)*
 
     CREATE TABLE AcmeAccount(
     Account_Id INT UNSIGNED NOT NULL,
@@ -183,6 +184,36 @@ the unused Owner_Contact column in place.)*
     PRIMARY KEY (Authz_Id),
     FOREIGN KEY (Order_Id) REFERENCES AcmeOrder(Order_Id) ON DELETE CASCADE);
 
+**Atomic id-allocation table**
+
+The app assigns integer primary keys itself (no AUTO_INCREMENT) for
+`Certificate`, `ActiveCertificate`, `NotifyGroup`, and the ACME tables. To make
+that race-free across the app's separate DB connections (web UI, ACME
+finalize, and the scheduler), `sucm_db.claim_next_id()` bumps a per-table row
+here atomically (`INSERT ... ON DUPLICATE KEY UPDATE`), seeded from the live
+table's `MAX(pk)` on first use:
+
+    CREATE TABLE IdCounter(
+    name VARCHAR(64) NOT NULL,
+    value INT UNSIGNED NOT NULL,
+    PRIMARY KEY (name));
+
+**One-time ACME credential-reveal table**
+
+When an ACME account is requested, its plaintext EAB HMAC key is shown to the
+requester exactly once. To avoid round-tripping that secret through the
+client-side session cookie, it is kept server-side (Fernet-encrypted) in this
+table, keyed by an unguessable one-time token that is deleted on first read
+(`sucm_acme_reveal.py`); expired unconsumed tokens are pruned by the scheduler:
+
+    CREATE TABLE AcmeRevealToken(
+    Token VARCHAR(64) NOT NULL,
+    Account_Id INT UNSIGNED NOT NULL,
+    Hmac_Key_Encrypted TEXT NOT NULL,
+    Create_Date DATETIME NOT NULL,
+    PRIMARY KEY (Token),
+    FOREIGN KEY (Account_Id) REFERENCES AcmeAccount(Account_Id) ON DELETE CASCADE);
+
 **ACME server (phase 2)**
 
 The actual RFC 8555 ACME protocol endpoint lives at `/acme/...`
@@ -205,10 +236,18 @@ portal at `/acme-accounts/...` (`sucm_acme_routes.py`). Key points:
     anything facing untrusted clients.
   - `finalize` validates the CSR's identifier set against the order, then
     drives the same `SucmCertificate.submit_manual_csr()` /
-    `renew_cert_with_csr()` pipeline a manually-submitted CSR would, using a
-    fixed CA/secret-path/notify-group (`sucm_acme_order.py`'s
-    `ACME_CA_PLUGIN_NAME`/`ACME_SECRET_PATH`/`ACME_NOTIFY_GROUP_ID` - update
-    these directly in that file if the target CA or Vault path changes).
+    `renew_cert_with_csr()` pipeline a manually-submitted CSR would, using the
+    CA/secret-path/notify-group read from the `[ACME]` section of
+    `sucm_conf.ini` (`ca_plugin_name`/`secret_path`/`notify_group_id`, loaded by
+    `_load_acme_config()` in `sucm_acme_order.py`). These are **required before
+    production** - if `ca_plugin_name`/`secret_path` are unset, `finalize_order()`
+    fails closed (serverInternal) rather than issuing into a default/test location.
   - Nonces are DB-backed (`AcmeNonce`), not in-memory, since the app can run
-    as multiple WSGI processes/threads.
+    as multiple WSGI processes/threads. `SucmAcmeNonce.consume()` is a single
+    atomic conditional `DELETE` (checked by affected-row count), so a nonce is
+    strictly single-use even under concurrent requests; `prune_expired()` runs
+    from the scheduler so the table does not grow unboundedly.
+  - The account's client JWK is bound on first `newAccount` via an atomic
+    check-and-set (`UPDATE ... WHERE Jwk_Json IS NULL`), so two concurrent
+    first registrations for the same EAB kid cannot overwrite each other's key.
 

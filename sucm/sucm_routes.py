@@ -1,27 +1,60 @@
 import os
 
-from flask import (Blueprint, g, redirect, render_template, request, session,
-                   url_for)
-from werkzeug.utils import secure_filename
-
+from flask import (
+    Blueprint,
+    abort,
+    g,
+    redirect,
+    render_template,
+    request,
+    session,
+    url_for,
+)
 from .sucm_certificate import SucmCertificate
 from .sucm_common import sucm_secret
 from .sucm_globals import ACME_CERT_TYPE, CERT_TYPES, state
-from .sucm_notifygroup import SucmNotifyGroup
+from .sucm_notifygroup import SucmNotifyGroup, validate_email_csv
+from .sucm_roles import parse_member_of, require_role, roles_for_groups
 from .sucm_settings import APP_LOGFILE, audit_logger, cfg
 
 bp = Blueprint("main", __name__)
 
 
+def _is_valid_secret_path(secret_path):
+    """
+    Defense-in-depth validation of the user-supplied Vault secret_path.
+
+    The authoritative control is the Vault user's own ACLs, but we also
+    restrict the value in-app to exactly the set of paths the secrets
+    backend advertises via get_all_paths() (the same list the GUI dropdown
+    is populated from), plus a basic shape check. Anything else is rejected.
+    """
+    if not secret_path or ".." in secret_path or not secret_path.endswith("/"):
+        return False
+    return secret_path in sucm_secret.get_all_paths()
+
+
 @bp.before_request
 def before_request():
-    session["username"] = request.headers.get("X-Remote-User")
+    # Apache/Shibboleth sets X-Remote-User / X-Remote-MemberOf via
+    # `RequestHeader set` in sucm-apache.conf, which replaces any
+    # client-supplied value. We nevertheless fail closed if X-Remote-User is
+    # absent: a request that reaches the app without it has bypassed (or
+    # misconfigured) the SSO gate and must not be treated as authenticated.
+    remote_user = request.headers.get("X-Remote-User")
+    if not remote_user:
+        abort(403)
+    session["username"] = remote_user
     g.eppn = session["username"]
     session["display_name"] = request.headers.get("X-Remote-Display-Name")
-    session["group"] = request.headers.get("X-Remote-MemberOf")
+    raw_member_of = request.headers.get("X-Remote-MemberOf")
+    session["group"] = raw_member_of  # kept for backward compat / audit logging
+    session["groups"] = parse_member_of(raw_member_of)
+    session["roles"] = sorted(roles_for_groups(session["groups"]))
 
 
 @bp.route("/")
+@require_role("cert_manager")
 def index():
     all_certs = SucmCertificate().get_all_certificate()
     noti_msg = request.args.get("notification_message", None)
@@ -38,22 +71,32 @@ def index():
     return render_template("index.html", all_certs=all_certs)
 
 
+# NOTE: gated to the tighter acme_admin group (it-produktion-infra-imdb), not
+# the broad cert_manager/it-staff group, because it reads and renders the raw
+# application log - operational detail that the wider cert-manager population
+# does not need. The matching Apache <LocationMatch> for /automation should be
+# tightened to the same group in su-salt-states-services-cert (TODO).
 @bp.route("/automation")
+@require_role("acme_admin")
 def automation():
     logs = []
     last_run = state["LAST_RUN"]
     with open(APP_LOGFILE, "r", encoding="utf-8") as f:
-        logs = f.read().splitlines()
+        # Tail, not the whole file: the log is truncated on each app start but
+        # can still grow large between restarts.
+        logs = f.read().splitlines()[-500:]
     return render_template("automation.html", logs=logs, last_run=last_run)
 
 
 @bp.route("/active_certs")
+@require_role("cert_manager")
 def active_certs():
     all_active_certs = SucmCertificate().get_all_active_certs()
     return render_template("active_certs.html", all_active_certs=all_active_certs)
 
 
 @bp.route("/notifygroups")
+@require_role("cert_manager")
 def notifygroups():
     all_groups_tuple = SucmNotifyGroup().get_all_notifygroups()
     all_groups = []
@@ -83,11 +126,13 @@ def notifygroups():
 
 
 @bp.route("/faq")
+@require_role("cert_manager", "acme_requester")
 def faq():
     return render_template("faq.html")
 
 
 @bp.route("/edit_cert_response", methods=["POST"])
+@require_role("cert_manager")
 def edit_cert_response():
     try:
         cert_id = request.form["cert_id"]
@@ -103,9 +148,8 @@ def edit_cert_response():
         # ACME-managed certs are only ever created/edited by the ACME account
         # admin panel / order-finalize bridge, never through this form - even
         # if a tampered request tries to smuggle it in via the cert_type field.
-        if (
-            request.form["cert_type"] == ACME_CERT_TYPE
-            or (cert_details and cert_details.get("cert_type") == ACME_CERT_TYPE)
+        if request.form["cert_type"] == ACME_CERT_TYPE or (
+            cert_details and cert_details.get("cert_type") == ACME_CERT_TYPE
         ):
             noti_type = "Danger"
             noti_msg = "ACME-managed certificates cannot be created or edited here."
@@ -134,6 +178,17 @@ def edit_cert_response():
         if not cert_conf["common_name"]:
             noti_type = "Danger"
             noti_msg = "Failure! Missing commonName"
+            return redirect(
+                url_for(
+                    "main.index",
+                    notification_message=noti_msg,
+                    notification_type=noti_type,
+                )
+            )
+
+        if not _is_valid_secret_path(cert_conf["secret_path"]):
+            noti_type = "Danger"
+            noti_msg = "Failure! Invalid secret path."
             return redirect(
                 url_for(
                     "main.index",
@@ -201,10 +256,24 @@ def edit_cert_response():
 
 
 @bp.route("/edit_group_response", methods=["POST"])
+@require_role("cert_manager")
 def edit_group_response():
     group_id = int(request.form["group_id"])
     group_name = request.form["group_name"]
-    email_csv = request.form["email_csv"]
+
+    # Validate the recipient list before it ever reaches the DB or a mail
+    # header - a CR/LF or malformed entry here would otherwise become a header
+    # injection primitive when send_email() splits and interpolates it.
+    try:
+        email_csv = validate_email_csv(request.form["email_csv"])
+    except ValueError as e:
+        return redirect(
+            url_for(
+                "main.notifygroups",
+                notification_message=f"Invalid email list: {e}",
+                notification_type="Danger",
+            )
+        )
 
     notify_group = SucmNotifyGroup(group_id, group_name, email_csv)
 
@@ -236,6 +305,7 @@ def edit_group_response():
 
 
 @bp.route("/add_group")
+@require_role("cert_manager")
 def add_group():
     group_id = SucmNotifyGroup().get_next_notifygroup_id()
     return render_template(
@@ -247,6 +317,7 @@ def add_group():
 @bp.route(
     "/delete_group/<int:group_id>", methods=["POST"]
 )  ## Note! need to add method for cleaning these from the certs data also.
+@require_role("cert_manager")
 def delete_group(group_id):
     try:
         SucmNotifyGroup().delete_notifygroup(group_id)
@@ -268,6 +339,7 @@ def delete_group(group_id):
 
 
 @bp.route("/delete_cert/<int:cert_id>", methods=["POST"])
+@require_role("cert_manager")
 def delete_cert(cert_id):
     try:
         cert = SucmCertificate().get_certificate_detail(cert_id=cert_id)
@@ -291,6 +363,7 @@ def delete_cert(cert_id):
 
 
 @bp.route("/inspect_active_cert/<int:active_cert_id>", methods=["POST", "GET"])
+@require_role("cert_manager")
 def inspect_active_cert(active_cert_id):
     details = SucmCertificate().get_active_cert_ssl_data(active_cert_id)
 
@@ -302,6 +375,7 @@ def inspect_active_cert(active_cert_id):
 
 
 @bp.route("/revoke_cert/<int:active_cert_id>", methods=["POST"])
+@require_role("cert_manager")
 def revoke_cert(active_cert_id):
     print(f"[REVOKE][route][pid={os.getpid()}] start active_cert_id={active_cert_id}")
 
@@ -311,26 +385,40 @@ def revoke_cert(active_cert_id):
     # Resolve only what's needed to (a) set CA on this instance, (b) redirect later
     try:
         active = sc.get_active_cert_detail(active_cert_id=active_cert_id)  # dict
-        print(f"[REVOKE][route] active row: cert_id={active.get('cert_id')} cn={active.get('common_name')}")
-        cert = sc.get_certificate_detail(active["cert_id"])               # dict
-        print(f"[REVOKE][route] cert row: CA_Id={cert.get('certificate_authority_id')} cn={cert.get('common_name')}")
+        print(
+            f"[REVOKE][route] active row: cert_id={active.get('cert_id')} cn={active.get('common_name')}"
+        )
+        cert = sc.get_certificate_detail(active["cert_id"])  # dict
+        print(
+            f"[REVOKE][route] cert row: CA_Id={cert.get('certificate_authority_id')} cn={cert.get('common_name')}"
+        )
         cert_id_for_redirect = cert["cert_id"]
     except Exception as e:
-        print(f"[REVOKE][route] failed to load active/cert rows for {active_cert_id}: {e}")
-        return redirect(url_for(
-            "main.active_certs",
-            notification_message="Failed to load certificate.",
-            notification_type="Danger",
-        ))
+        print(
+            f"[REVOKE][route] failed to load active/cert rows for {active_cert_id}: {e}"
+        )
+        return redirect(
+            url_for(
+                "main.active_certs",
+                notification_message="Failed to load certificate.",
+                notification_type="Danger",
+            )
+        )
 
     # 🔑 First lock: pre-set CA on this instance BEFORE calling service
     sc.certificate_authority_id = cert["certificate_authority_id"]
     sc.common_name = cert.get("common_name")
-    print(f"[REVOKE][route] preset on instance: CA_Id={sc.certificate_authority_id} CN={sc.common_name}")
+    print(
+        f"[REVOKE][route] preset on instance: CA_Id={sc.certificate_authority_id} CN={sc.common_name}"
+    )
 
     try:
-        print(f"[REVOKE][route] calling service revoke_cert for ActiveCertificate_Id={active_cert_id}")
-        sc.revoke_cert(active_cert_id)  # service will re-derive & verify CA (second lock)
+        print(
+            f"[REVOKE][route] calling service revoke_cert for ActiveCertificate_Id={active_cert_id}"
+        )
+        sc.revoke_cert(
+            active_cert_id
+        )  # service will re-derive & verify CA (second lock)
         print(f"[REVOKE][route] service revoke_cert returned OK")
         noti_type, noti_msg = "Success", "Cert revoked successfully!"
     except Exception as e:
@@ -338,15 +426,18 @@ def revoke_cert(active_cert_id):
         noti_type, noti_msg = "Danger", "Failed to revoke certificate!"
 
     print(f"[REVOKE][route] redirect → inspect_cert cert_id={cert_id_for_redirect}")
-    return redirect(url_for(
-        "main.inspect_cert",
-        cert_id=cert_id_for_redirect,
-        notification_message=noti_msg,
-        notification_type=noti_type,
-    ))
+    return redirect(
+        url_for(
+            "main.inspect_cert",
+            cert_id=cert_id_for_redirect,
+            notification_message=noti_msg,
+            notification_type=noti_type,
+        )
+    )
 
 
 @bp.route("/add_cert")
+@require_role("cert_manager")
 def add_cert():
     certificate_authoritys = SucmCertificate().get_all_certificate_authority()
     notify_groups = SucmNotifyGroup().get_all_notifygroups()
@@ -374,6 +465,7 @@ def add_cert():
 
 
 @bp.route("/<int:cert_id>", methods=["POST", "GET"])
+@require_role("cert_manager")
 def inspect_cert(cert_id):
     cert_data = SucmCertificate().get_certificate_detail(cert_id)
     certificate_authority_detail = SucmCertificate().get_certificate_authority_detail(
@@ -418,6 +510,7 @@ def inspect_cert(cert_id):
 
 
 @bp.route("/edit_cert?<cert_id>", methods=["POST", "GET"])
+@require_role("cert_manager")
 def edit_cert(cert_id):
     cert_data = SucmCertificate().get_certificate_detail(cert_id)
 
@@ -474,12 +567,14 @@ def edit_cert(cert_id):
 
 
 @bp.route("/submit_csr/<int:cert_id>", methods=["POST", "GET"])
+@require_role("cert_manager")
 def submit_csr(cert_id):
     cert_data = SucmCertificate().get_certificate_detail(cert_id)
     return render_template("submit_csr.html", cert_data=cert_data)
 
 
 @bp.route("/renew_crt/<int:cert_id>", methods=["POST"])
+@require_role("cert_manager")
 def renew_crt(cert_id):
     cert = SucmCertificate(cert_id=cert_id)
     cert.create_new_key_and_csr()
@@ -500,6 +595,7 @@ def renew_crt(cert_id):
 
 
 @bp.route("/renew_csr/<int:cert_id>", methods=["POST"])
+@require_role("cert_manager")
 def renew_csr(cert_id):
     cert = SucmCertificate(cert_id=cert_id)
     cert.create_new_key_and_csr()
@@ -519,18 +615,18 @@ def renew_csr(cert_id):
 
 
 @bp.route("/submit_csr_response", methods=["POST"])
+@require_role("cert_manager")
 def submit_csr_response():
     cert_id = request.form["cert_id"]
 
-    # Handle uploaded file
+    # Handle uploaded file. A CSR is a public artifact (it only ever contains
+    # a public key + identifiers), so there is no reason to stage it on disk -
+    # read it straight from the in-memory upload stream. This avoids the
+    # previous predictable-/tmp-path write, which was open to symlink /
+    # pre-creation games and concurrent-upload clobbering.
     csr_file = request.files.get("csr_file")
     if csr_file:
-        filename = secure_filename(csr_file.filename)
-        filepath = os.path.join("/tmp", filename)
-        csr_file.save(filepath)
-        with open(filepath, "r", encoding="utf-8") as file:
-            csr_data = file.read()
-        os.remove(filepath)
+        csr_data = csr_file.read().decode("utf-8", errors="replace")
     else:
         csr_data = request.form["freeform"]
 
@@ -567,6 +663,7 @@ def submit_csr_response():
 
 
 @bp.route("/edit_group/<int:group_id>", methods=["POST", "GET"])
+@require_role("cert_manager")
 def edit_group(group_id):
     group_data = SucmNotifyGroup().get_notifygroup_detail(group_id)
     return render_template("edit_group.html", group_data=group_data)

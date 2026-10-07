@@ -63,9 +63,11 @@
                         <td>{{group['used_in']}}</td>
                         <td class="table-actions">
                             <form action="{{ url_for('main.edit_group', group_id=group['group_id'] ) }}" method="post" class="inline-form">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <input class="btn btn-primary" type="submit" name="{{ group['group_id'] }}" value="Edit group">
                             </form>
                             <form action="{{ url_for('main.delete_group', group_id=group['group_id'] ) }}" method="post" class="inline-form">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <input class="btn btn-danger" type="submit" name="{{ group['group_id'] }}" value="Delete group">
                             </form>
                         </td>

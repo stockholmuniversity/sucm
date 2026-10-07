@@ -11,9 +11,12 @@ url_base = "https://cm.harica.gr"
 
 session = requests.Session()
 
+
 def fetch_rvt():
     r = session.get(url_base)
-    match = re.search(r'<input name="__RequestVerificationToken".*value="([^"]+)"', r.text)
+    match = re.search(
+        r'<input name="__RequestVerificationToken".*value="([^"]+)"', r.text
+    )
     if not match:
         print("❌ Could not find RequestVerificationToken.")
         sys.exit(1)
@@ -21,13 +24,10 @@ def fetch_rvt():
     session.headers.update({"RequestVerificationToken": rvt})
     return rvt
 
+
 def login(totp):
     fetch_rvt()
-    login_data = {
-        "email": email,
-        "password": password,
-        "token": totp
-    }
+    login_data = {"email": email, "password": password, "token": totp}
     session.headers.update({"Content-Type": "application/json;charset=utf-8"})
     r = session.post(f"{url_base}/api/User/Login2FA", json=login_data)
     if not r.ok:
@@ -39,14 +39,14 @@ def login(totp):
     fetch_rvt()
     print("✅ Login successful")
 
-def list_pending_transactions():
-    payload = {
-        "startIndex": 0,
-        "status": "Pending",
-        "filterPostDTOs": []
-    }
 
-    r = session.post(f"{url_base}/api/OrganizationValidatorSSL/GetSSLReviewableTransactions", json=payload)
+def list_pending_transactions():
+    payload = {"startIndex": 0, "status": "Pending", "filterPostDTOs": []}
+
+    r = session.post(
+        f"{url_base}/api/OrganizationValidatorSSL/GetSSLReviewableTransactions",
+        json=payload,
+    )
     if not r.ok:
         print("❌ Failed to get transactions:", r.status_code)
         print(r.text)
@@ -64,23 +64,27 @@ def list_pending_transactions():
         reviews = tx.get("reviewGetDTOs", [])
         for idx, rev in enumerate(reviews, start=1):
             status = "✅ reviewed" if rev.get("isReviewed") else "⏳ pending"
-            print(f"   - Review {idx}: id={rev.get('reviewId')} value={rev.get('reviewValue')} → {status}")
+            print(
+                f"   - Review {idx}: id={rev.get('reviewId')} value={rev.get('reviewValue')} → {status}"
+            )
         print("")
 
-def approve_transaction(transaction_id):
-    payload = {
-        "startIndex": 0,
-        "status": "Pending",
-        "filterPostDTOs": []
-    }
 
-    r = session.post(f"{url_base}/api/OrganizationValidatorSSL/GetSSLReviewableTransactions", json=payload)
+def approve_transaction(transaction_id):
+    payload = {"startIndex": 0, "status": "Pending", "filterPostDTOs": []}
+
+    r = session.post(
+        f"{url_base}/api/OrganizationValidatorSSL/GetSSLReviewableTransactions",
+        json=payload,
+    )
     if not r.ok:
         print("❌ Failed to fetch reviewable transactions.")
         sys.exit(1)
 
     transactions = r.json()
-    tx = next((t for t in transactions if t.get("transactionId") == transaction_id), None)
+    tx = next(
+        (t for t in transactions if t.get("transactionId") == transaction_id), None
+    )
     if not tx:
         print(f"❌ Transaction ID {transaction_id} not found.")
         sys.exit(1)
@@ -105,15 +109,14 @@ def approve_transaction(transaction_id):
                 "isValid": "true",
                 "informApplicant": "true",
                 "reviewMessage": "Approved via script",
-                "reviewValue": rval
+                "reviewValue": rval,
             }
 
             m = MultipartEncoder(fields=fields)
             session.headers["Content-Type"] = m.content_type
 
             r = session.post(
-                f"{url_base}/api/OrganizationValidatorSSL/UpdateReviews",
-                data=m
+                f"{url_base}/api/OrganizationValidatorSSL/UpdateReviews", data=m
             )
 
             if r.ok:
@@ -127,6 +130,7 @@ def approve_transaction(transaction_id):
         print(f"\n✅ Transaction {transaction_id} fully approved.")
     else:
         print("\n⚠️ No reviews were approved (maybe already approved?).")
+
 
 # ---------- Main ----------
 if len(sys.argv) < 3:

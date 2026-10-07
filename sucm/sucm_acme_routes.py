@@ -1,8 +1,19 @@
 import base64
 
-from flask import Blueprint, g, redirect, render_template, request, session, url_for
+from flask import (
+    Blueprint,
+    abort,
+    g,
+    redirect,
+    render_template,
+    request,
+    session,
+    url_for,
+)
 
 from .sucm_acme_account import SucmAcmeAccount
+from .sucm_acme_reveal import SucmAcmeRevealToken
+from .sucm_roles import parse_member_of, require_role, roles_for_groups
 from .sucm_settings import audit_logger
 
 bp = Blueprint("acme_accounts", __name__, url_prefix="/acme-accounts")
@@ -37,16 +48,25 @@ def _short_username(remote_user):
 @bp.before_request
 def before_request():
     # Mirrors main.bp's before_request. Apache/Shibboleth enforces the
-    # actual group membership per path (it-staff for the request form,
-    # it-produktion-infra-imdb for the admin views) - this only captures
-    # identity for session/audit purposes.
-    session["username"] = _short_username(request.headers.get("X-Remote-User"))
+    # actual group membership per path (jira-administrators/it-staff for
+    # the request form, it-produktion-infra-imdb for the admin views) -
+    # role checks below are defense-in-depth on top of that. Apache sets the
+    # X-Remote-* headers via `RequestHeader set`; fail closed if X-Remote-User
+    # is absent rather than treating an SSO-bypassing request as authenticated.
+    remote_user = request.headers.get("X-Remote-User")
+    if not remote_user:
+        abort(403)
+    session["username"] = _short_username(remote_user)
     g.eppn = session["username"]
     session["display_name"] = request.headers.get("X-Remote-Display-Name")
-    session["group"] = request.headers.get("X-Remote-MemberOf")
+    raw_member_of = request.headers.get("X-Remote-MemberOf")
+    session["group"] = raw_member_of  # kept for backward compat / audit logging
+    session["groups"] = parse_member_of(raw_member_of)
+    session["roles"] = sorted(roles_for_groups(session["groups"]))
 
 
 @bp.route("/request", methods=["GET", "POST"])
+@require_role("acme_requester")
 def request_account():
     if request.method == "POST":
         name = request.form.get("name", "").strip()
@@ -71,12 +91,16 @@ def request_account():
             session.get("username"),
         )
 
-        # Stash the plaintext secret in the session for a single, one-time
-        # reveal on the next page. It is never written to the DB or logs.
+        # Stash only the NON-secret identifiers in the session. The plaintext
+        # HMAC key is kept server-side in a one-time reveal token (see
+        # sucm_acme_reveal) so it never rides the client-side session cookie -
+        # Flask's default cookie is signed, not encrypted, so a secret stored
+        # in it would be base64-readable by the browser/proxy until consumed.
+        reveal_token = SucmAcmeRevealToken.create(account_id, hmac_key)
         session["acme_new_account"] = {
             "account_id": account_id,
             "eab_kid": eab_kid,
-            "hmac_key": hmac_key,
+            "reveal_token": reveal_token,
         }
         return redirect(url_for("acme_accounts.account_created"))
 
@@ -84,10 +108,25 @@ def request_account():
 
 
 @bp.route("/created")
+@require_role("acme_requester")
 def account_created():
-    new_account = session.pop("acme_new_account", None)
-    if not new_account:
+    stashed = session.pop("acme_new_account", None)
+    if not stashed or "reveal_token" not in stashed:
         return redirect(url_for("acme_accounts.request_account"))
+
+    # Consume the one-time token (deletes the server-side row). A second visit,
+    # an expired token, or a tampered/unknown token all return None -> the
+    # plaintext HMAC key is only ever revealed once.
+    revealed = SucmAcmeRevealToken.consume(stashed["reveal_token"])
+    if not revealed:
+        return redirect(url_for("acme_accounts.request_account"))
+    _account_id, hmac_key = revealed
+
+    new_account = {
+        "account_id": stashed["account_id"],
+        "eab_kid": stashed["eab_kid"],
+        "hmac_key": hmac_key,
+    }
     certbot_config = _build_certbot_config(
         new_account["eab_kid"], new_account["hmac_key"]
     )
@@ -102,16 +141,16 @@ def account_created():
 
 
 @bp.route("/admin")
+@require_role("acme_admin")
 def admin_list():
     accounts = SucmAcmeAccount().get_all_accounts()
     return render_template("acme_admin_accounts.html", accounts=accounts)
 
 
 @bp.route("/admin/<int:account_id>/activate", methods=["POST"])
+@require_role("acme_admin")
 def admin_activate(account_id):
-    SucmAcmeAccount().activate_account(
-        account_id, activated_by=session.get("username")
-    )
+    SucmAcmeAccount().activate_account(account_id, activated_by=session.get("username"))
     audit_logger.info(
         "ACME account %s activated by %s", account_id, session.get("username")
     )
@@ -119,6 +158,7 @@ def admin_activate(account_id):
 
 
 @bp.route("/admin/<int:account_id>/disable", methods=["POST"])
+@require_role("acme_admin")
 def admin_disable(account_id):
     SucmAcmeAccount().disable_account(account_id)
     audit_logger.info(
@@ -128,15 +168,15 @@ def admin_disable(account_id):
 
 
 @bp.route("/admin/<int:account_id>/domains")
+@require_role("acme_admin")
 def admin_domains(account_id):
     account = SucmAcmeAccount(account_id).get_account_detail(account_id)
     domains = SucmAcmeAccount(account_id).get_domains(account_id)
-    return render_template(
-        "acme_admin_domains.html", account=account, domains=domains
-    )
+    return render_template("acme_admin_domains.html", account=account, domains=domains)
 
 
 @bp.route("/admin/<int:account_id>/domains/add", methods=["POST"])
+@require_role("acme_admin")
 def admin_domains_add(account_id):
     domain_pattern = request.form.get("domain_pattern", "").strip()
     if domain_pattern:
@@ -151,6 +191,7 @@ def admin_domains_add(account_id):
 
 
 @bp.route("/admin/domains/<int:domain_id>/delete", methods=["POST"])
+@require_role("acme_admin")
 def admin_domains_delete(domain_id):
     SucmAcmeAccount().remove_domain(domain_id)
     audit_logger.info(

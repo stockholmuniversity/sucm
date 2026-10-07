@@ -30,11 +30,13 @@
                     <a class="btn btn-secondary" href="{{ url_for('acme_accounts.admin_domains', account_id=account.account_id) }}">Manage domains</a>
                     {% if account.status != "active" %}
                     <form method="post" action="{{ url_for('acme_accounts.admin_activate', account_id=account.account_id) }}" style="display:inline-block;">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <input class="btn btn-primary" type="submit" value="Activate">
                     </form>
                     {% endif %}
                     {% if account.status != "disabled" %}
                     <form method="post" action="{{ url_for('acme_accounts.admin_disable', account_id=account.account_id) }}" style="display:inline-block;">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <input class="btn btn-danger" type="submit" value="Disable">
                     </form>
                     {% endif %}

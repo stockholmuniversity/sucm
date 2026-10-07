@@ -9,6 +9,8 @@ import re
 import requests
 
 tfa = ""
+
+
 class HaricaAPI:
     def __init__(self):
         # For this demonstration, take email and password from environment variables
@@ -16,8 +18,8 @@ class HaricaAPI:
         with open("harica.json", "r") as harica:
             secrets = json.load(harica)
         self.url_base = os.environ.get("HARICA_URL_BASE", "https://cm.harica.gr")
-        #self.email = os.environ["HARICA_EMAIL"]
-        #self.password = os.environ["HARICA_PASSWORD"]
+        # self.email = os.environ["HARICA_EMAIL"]
+        # self.password = os.environ["HARICA_PASSWORD"]
         self.email = secrets["email"]
         self.password = secrets["password"]
         tfa = secrets["2fa"]
@@ -38,7 +40,7 @@ class HaricaAPI:
         r = self.session.get(self.url_base)
         m = re.search(
             r'<input name="__RequestVerificationToken".*value="([^"]+)"', r.text
-            )
+        )
         rvt = m.group(1)
         self.session.headers.update({"RequestVerificationToken": rvt})
         print("Token from _update_rvt: " + rvt)
@@ -50,9 +52,11 @@ class HaricaAPI:
         if data is None:
             data = {}
         r = self.session.post(self.url_base + path, json=data)
-#        print(r.text)
+        #        print(r.text)
         r.raise_for_status()
-        print("Headers in request: " + h.session.headers.get("RequestVerificationToken"))
+        print(
+            "Headers in request: " + h.session.headers.get("RequestVerificationToken")
+        )
         return r
 
     def post_with_formdata(self, path, data=None):
@@ -62,9 +66,11 @@ class HaricaAPI:
         if data is None:
             data = {}
         r = self.session.post(self.url_base + path, data=data)
-#        print(r.text)
+        #        print(r.text)
         r.raise_for_status()
-        print("Headers in request: " + h.session.headers.get("RequestVerificationToken"))
+        print(
+            "Headers in request: " + h.session.headers.get("RequestVerificationToken")
+        )
         return r
 
     def login(self):
@@ -93,47 +99,53 @@ h = HaricaAPI()
 
 # Login for user with 2FA
 # token = getpass("Token: ")
-token = os.popen("oathtool -b --totp '{}'".format(os.environ["HARICA_2FA"])).read().strip()
-#print(token)
+token = (
+    os.popen("oathtool -b --totp '{}'".format(os.environ["HARICA_2FA"])).read().strip()
+)
+# print(token)
 h.login_2fa(token)
 
 # Demonstrate some simple API calls
 
-#r = h.post("/api/User/GetCurrentUser")
-#pprint(r.json())
+# r = h.post("/api/User/GetCurrentUser")
+# pprint(r.json())
 
-#r = h.post("/api/ServerCertificate/CheckMachingOrganization", [{"domain": "liu.se"}])
-#pprint(r.json())
+# r = h.post("/api/ServerCertificate/CheckMachingOrganization", [{"domain": "liu.se"}])
+# pprint(r.json())
 # Test /api/User/GetCurrentUser. This seems to be working as of 2025-04-23.
-#print("Start /api/User/GetCurrentUser")
-#getCurrentUserResponse = h.post("/api/User/GetCurrentUser")
-#print(getCurrentUserResponse.text)
-#print("End /api/User/GetCurrentUser")
+# print("Start /api/User/GetCurrentUser")
+# getCurrentUserResponse = h.post("/api/User/GetCurrentUser")
+# print(getCurrentUserResponse.text)
+# print("End /api/User/GetCurrentUser")
 # Order new cert
 print("\n\n")
 csr_string = ""
-fqdn=input("FQDN?")
+fqdn = input("FQDN?")
 with open("{}.csr".format(fqdn), "r") as csr:
     csr_string = csr.read()
-org_info = h.post("/api/ServerCertificate/CheckMachingOrganization", [ {"domain": "su.se" } ])
+org_info = h.post(
+    "/api/ServerCertificate/CheckMachingOrganization", [{"domain": "su.se"}]
+)
 org_id = org_info.json()[0]["id"]
 print("org_id: {}".format(org_id))
 order_data = {
-        "friendlyName": "testcert-container-lab",
-        "domains": '[{"isWildcard":false,"domain":"container-lab.it.su.se","includeWWW":false}]',
-        "domainsString": '[{"isWildcard":false,"domain":"container-lab.it.su.se","includeWWW":false}',
-        "duration":1,
-        "csr": csr_string,
-        "consentSameKey": True,
-        "isManualCSR": True,
-        "transactionType": "OV",
-        "organizationDN": org_id
-        }
+    "friendlyName": "testcert-container-lab",
+    "domains": '[{"isWildcard":false,"domain":"container-lab.it.su.se","includeWWW":false}]',
+    "domainsString": '[{"isWildcard":false,"domain":"container-lab.it.su.se","includeWWW":false}',
+    "duration": 1,
+    "csr": csr_string,
+    "consentSameKey": True,
+    "isManualCSR": True,
+    "transactionType": "OV",
+    "organizationDN": org_id,
+}
 print("\n\n")
 print("Data in outgoing request:\n")
 print(json.dumps(order_data, indent=4))
-response = h.post_with_formdata("/api/ServerCertificate/RequestServerCertificate", order_data)
+response = h.post_with_formdata(
+    "/api/ServerCertificate/RequestServerCertificate", order_data
+)
 print("Result:\n\n")
 print(response)
-#get_my_transactions = h.post("/api/ServerCertificate/GetMyTransactions")
-#print(get_my_transactions.text)
+# get_my_transactions = h.post("/api/ServerCertificate/GetMyTransactions")
+# print(get_my_transactions.text)

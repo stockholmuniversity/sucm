@@ -76,7 +76,7 @@ class SucmAcmeAccount:
         }
 
     def get_next_account_id(self):
-        return sucm_db.get_next_available_id("AcmeAccount")
+        return sucm_db.claim_next_id("AcmeAccount")
 
     def create_account(self, name, topdesk_ticket, requested_by=None):
         """
@@ -143,10 +143,22 @@ class SucmAcmeAccount:
         return decrypt_secret(account["hmac_key_encrypted"])
 
     def bind_jwk(self, account_id, jwk_json):
-        sucm_db.execute_modify_query(
-            "UPDATE AcmeAccount SET Jwk_Json = %s WHERE Account_Id = %s",
+        """
+        Atomically bind the account's client JWK on first use.
+
+        The ``WHERE Jwk_Json IS NULL`` guard makes the check-and-set a single
+        statement, so two concurrent first ``newAccount`` calls for the same
+        EAB kid cannot both pass the "no JWK bound yet" check and have the
+        second silently overwrite the first client's key binding (an account
+        takeover primitive). Returns True iff this call actually performed the
+        bind (0 rows updated means someone else won the race).
+        """
+        result = sucm_db.execute_modify_rows(
+            "UPDATE AcmeAccount SET Jwk_Json = %s "
+            "WHERE Account_Id = %s AND Jwk_Json IS NULL",
             (jwk_json, account_id),
         )
+        return result == 1
 
     def activate_account(self, account_id, activated_by):
         sucm_db.execute_modify_query(
@@ -162,12 +174,12 @@ class SucmAcmeAccount:
         )
 
     def delete_account(self, account_id):
-        sucm_db.remove_record("AcmeAccount", "Account_Id = %s", (int(account_id),))
+        sucm_db.remove_record("AcmeAccount", "Account_Id", int(account_id))
 
     # --- Domain allow-list ---
 
     def get_next_domain_id(self):
-        return sucm_db.get_next_available_id("AcmeAccountDomain")
+        return sucm_db.claim_next_id("AcmeAccountDomain")
 
     def get_domains(self, account_id=None):
         if account_id is None:
@@ -190,7 +202,7 @@ class SucmAcmeAccount:
         return domain_id
 
     def remove_domain(self, domain_id):
-        sucm_db.remove_record("AcmeAccountDomain", "Domain_Id = %s", (int(domain_id),))
+        sucm_db.remove_record("AcmeAccountDomain", "Domain_Id", int(domain_id))
 
     @staticmethod
     def _pattern_matches(pattern, identifier_value):
