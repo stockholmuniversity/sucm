@@ -14,7 +14,7 @@ from flask import (
 from .sucm_acme_account import SucmAcmeAccount
 from .sucm_acme_reveal import SucmAcmeRevealToken
 from .sucm_roles import parse_member_of, require_role, roles_for_groups
-from .sucm_settings import app_logger, audit_logger
+from .sucm_settings import audit_logger
 
 bp = Blueprint("acme_accounts", __name__, url_prefix="/acme-accounts")
 
@@ -63,14 +63,6 @@ def before_request():
     session["group"] = raw_member_of  # kept for backward compat / audit logging
     session["groups"] = parse_member_of(raw_member_of)
     session["roles"] = sorted(roles_for_groups(session["groups"]))
-    # TEMP DEBUG: diagnose memberOf parsing / role resolution.
-    app_logger.info(
-        "AUTH-DEBUG user=%s raw_memberOf=%r groups=%s roles=%s",
-        session["username"],
-        raw_member_of,
-        session["groups"],
-        session["roles"],
-    )
 
 
 @bp.route("/request", methods=["GET", "POST"])

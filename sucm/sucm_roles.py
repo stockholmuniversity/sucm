@@ -11,13 +11,10 @@ from functools import wraps
 from flask import abort, session
 
 from .sucm_globals import ROLE_GROUPS
-from .sucm_settings import app_logger
 
-# NOTE: mod_shib's documented default delimiter for multi-valued headers is
-# ";" but this has NOT been empirically confirmed against a real multi-group
-# request/log for this deployment (attribute-map.xml/shibboleth2.xml were
-# not found in any locally-cloned salt-states repo - see Step 0 in
-# TODO-role-based-views.md). Confirm before relying on this in production.
+# Confirmed against a live multi-group login on 2026-10-12: mod_shib joins
+# the multi-valued memberOf attribute into X-Remote-MemberOf using ";" as the
+# separator, and the values are bare group names (e.g. "it-staff"), not DNs.
 MEMBEROF_DELIMITER = ";"
 
 
@@ -56,16 +53,7 @@ def require_role(*allowed_roles):
     def decorator(view_func):
         @wraps(view_func)
         def wrapped(*args, **kwargs):
-            have = set(session.get("roles", []))
-            if not have & set(allowed_roles):
-                # Log the resolved-vs-required roles so a 403 is
-                # self-diagnosing (e.g. a memberOf parse mismatch).
-                app_logger.warning(
-                    "AUTH-DEBUG 403 user=%s required=%s resolved=%s",
-                    session.get("username"),
-                    sorted(allowed_roles),
-                    sorted(have),
-                )
+            if not set(session.get("roles", [])) & set(allowed_roles):
                 abort(403)
             return view_func(*args, **kwargs)
 
