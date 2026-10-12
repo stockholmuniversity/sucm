@@ -15,7 +15,7 @@ from .sucm_common import sucm_secret
 from .sucm_globals import ACME_CERT_TYPE, CERT_TYPES, state
 from .sucm_notifygroup import SucmNotifyGroup, validate_email_csv
 from .sucm_roles import parse_member_of, require_role, roles_for_groups
-from .sucm_settings import APP_LOGFILE, audit_logger, cfg
+from .sucm_settings import APP_LOGFILE, app_logger, audit_logger, cfg
 
 bp = Blueprint("main", __name__)
 
@@ -51,6 +51,14 @@ def before_request():
     session["group"] = raw_member_of  # kept for backward compat / audit logging
     session["groups"] = parse_member_of(raw_member_of)
     session["roles"] = sorted(roles_for_groups(session["groups"]))
+    # TEMP DEBUG: diagnose memberOf parsing / role resolution (see 403 on /).
+    app_logger.info(
+        "AUTH-DEBUG user=%s raw_memberOf=%r groups=%s roles=%s",
+        session["username"],
+        raw_member_of,
+        session["groups"],
+        session["roles"],
+    )
 
 
 @bp.route("/")

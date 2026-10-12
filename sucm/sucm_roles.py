@@ -11,6 +11,7 @@ from functools import wraps
 from flask import abort, session
 
 from .sucm_globals import ROLE_GROUPS
+from .sucm_settings import app_logger
 
 # NOTE: mod_shib's documented default delimiter for multi-valued headers is
 # ";" but this has NOT been empirically confirmed against a real multi-group
@@ -55,7 +56,16 @@ def require_role(*allowed_roles):
     def decorator(view_func):
         @wraps(view_func)
         def wrapped(*args, **kwargs):
-            if not set(session.get("roles", [])) & set(allowed_roles):
+            have = set(session.get("roles", []))
+            if not have & set(allowed_roles):
+                # Log the resolved-vs-required roles so a 403 is
+                # self-diagnosing (e.g. a memberOf parse mismatch).
+                app_logger.warning(
+                    "AUTH-DEBUG 403 user=%s required=%s resolved=%s",
+                    session.get("username"),
+                    sorted(allowed_roles),
+                    sorted(have),
+                )
                 abort(403)
             return view_func(*args, **kwargs)
 
