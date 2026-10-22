@@ -7,6 +7,7 @@ from .sucm_acme_routes import bp as acme_accounts_bp
 from .sucm_acme_server_routes import bp as acme_server_bp
 from .sucm_automation import start_scheduler
 from .sucm_settings import cfg
+from .sucm_version import get_version_info
 
 
 def create_app():
@@ -32,9 +33,14 @@ def create_app():
     app.register_blueprint(acme_server_bp)
     start_scheduler()
 
+    version_info = get_version_info()
+
     @app.context_processor
     def inject_roles():
-        return {"current_roles": session.get("roles", [])}
+        return {
+            "current_roles": session.get("roles", []),
+            "version_info": version_info,
+        }
 
     @app.after_request
     def set_security_headers(response):

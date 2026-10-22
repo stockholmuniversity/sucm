@@ -107,5 +107,9 @@
 
 		{% block content %}
 		{% endblock %}
+
+		<footer class="text-muted small text-center py-3">
+			SUCM {{ version_info.label }}{% if version_info.detail %} ({{ version_info.detail }}){% endif %}
+		</footer>
 	</body>
 </html>
