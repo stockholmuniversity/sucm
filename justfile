@@ -145,7 +145,7 @@ wait-build name key value timeout="1200":
         elif seen is None:
             print("waiting for {{name}} build with {{key}}={{value}} to appear...", flush=True)
             seen = ()
-        time.sleep(10)
+        time.sleep(3)
     sys.exit("timeout waiting for {{name}} {{key}}={{value}}")
 
 # Step 1-7: bump version, commit+push master, wait for build, tag, push tag, wait for the tag build
@@ -211,7 +211,11 @@ _salt-apply host:
     echo "$out" | grep -qE '^Failed: +0$' || { echo "salt reported failures"; exit 1; }
 
 # Step 10: apply salt on sucm-test and restart apache
-deploy-test: (salt-dry test_host)
+deploy-test: (salt-dry test_host) _deploy-test
+
+# Apply + restart without the dry-run (used by `release`, which has already confirmed)
+[private]
+_deploy-test:
     just _confirm "Apply salt and restart apache2 on {{test_host}}?"
     just _salt-apply {{test_host}}
     ssh {{test_host}} 'sudo systemctl restart apache2.service && systemctl is-active apache2.service'
@@ -257,6 +261,6 @@ release new:
     export YES=1
     just release-test "$v"
     just update-cert-app "$v"
-    just deploy-test
+    just _deploy-test
     just sanity
     echo "Release $v is on test. Prod: just promote-prod, then just deploy-prod."
