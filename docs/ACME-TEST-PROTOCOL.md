@@ -49,6 +49,29 @@ level 1 decides whether the ACME feature is usable.
 | 15:21 | Level 1 with issuance + new revoke steps | order 10024 → cert_id 181 issued (second real Harica cert, F4). **Certificate row now created** (F6 fixed), ACME revoke of own cert **succeeded** (audit.log: `account 10016 revoked certificate 181`, serial `0x300c8ab27e76d40f9e267565fffc3660`) |
 | 15:22 | Revoke the same cert again | `unauthorized` instead of `alreadyRevoked` (F9, minor) |
 
+## Run 2 – SUCM v0.14.0 (2026-10-26)
+**Setup:** SUCM v0.14.0 on sucm-test (includes `73dee23` "ACME revoke bug fix"), `[ACME]` now rendered by salt, account 10016, run from haak0644.it.su.se as haak0644 with the tester code at its commit on that date.
+
+**Commands and outcome**
+| Command | Issues cert? | Result |
+|---------|--------------|--------|
+| `pytest -m "not issuance" tests` | no | 37 passed, 2 failed (L3-08 RS256, L4-03), 2 deselected |
+| `pytest tests/test_level1_happy_path.py -v` | yes (order 10024, cert_id 181) | 9 passed, 1 failed (`TestRevoke::test_7`, L3-02b) |
+
+**Comparison with run 1 (v0.12.0)**
+| Test | Run 1 (v0.12.0) | Run 2 (v0.14.0) | Comment |
+|------|-----------------|-----------------|---------|
+| L1-01–L1-08 | PASS (after temporary `[ACME]`) | PASS | Cert 181, `Certificate` row created |
+| L3-02 revoke own cert | FAIL (F6) | **PASS** | Fixed. Audit log: `account 10016 revoked certificate 181` |
+| L3-02b revoke again | not tested | FAIL | `unauthorized` instead of `alreadyRevoked` (F9). `test_7` was corrected afterwards and **not rerun** (needs another real cert) |
+| L3-08 RS256 with EC key | FAIL (F7) | FAIL | Unchanged, still HTTP 500 |
+| L4-03 `Link` header | FAIL (F8) | FAIL | Unchanged |
+| All other implemented L2–L4 tests | PASS | PASS | No regressions |
+
+**Not run:** L1-09 (certbot, needs a second EAB account), L2-01 (renewal, issues a real cert), L2-09, L3-01, L3-03, L3-04, L4-05–L4-09.
+
+**Side effects:** one more real, publicly trusted cert issued and revoked (cert 181, serial `0x300c8ab27e76d40f9e267565fffc3660`); cert 180 from run 1 is still unrevoked (see F4/F6). Issuance is deferred until a Harica test environment exists.
+
 ## Findings
 | # | Finding | Cause | Action |
 |---|---------|-------|--------|
