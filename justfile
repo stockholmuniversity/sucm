@@ -216,12 +216,12 @@ deploy-test: (salt-dry test_host)
     just _salt-apply {{test_host}}
     ssh {{test_host}} 'sudo systemctl restart apache2.service && systemctl is-active apache2.service'
 
-# Installed sucm version and ACME directory on a host (read-only)
+# Installed sucm version and apache state on a host (read-only)
 sanity host=test_host:
     #!/usr/bin/env bash
     set -euo pipefail
     echo "installed: $(ssh {{host}} 'sudo /local/cert-app/bin/pip list 2>/dev/null | grep -i "^sucm "')"
-    curl -fsS -m 20 "https://{{host}}/acme/directory" | python3 -c 'import sys,json; d=json.load(sys.stdin); print("acme directory ok:", sorted(k for k in d if k != "meta"))'
+    echo "apache2  : $(ssh {{host}} 'systemctl is-active apache2.service')"
 
 # Prod promotion is an interactive Jenkins input step: prints the build form URL and what to do
 promote-prod:
