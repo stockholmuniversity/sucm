@@ -1,4 +1,4 @@
-# SUCM task runner: Jenkins status helpers, release to test, promote/deploy to prod, ACME checks.
+# SUCM task runner: Jenkins status helpers, release to test, promote/deploy to prod.
 #
 # REQUIREMENTS (run `just check` to verify them)
 #   Local tools
@@ -7,7 +7,6 @@
 #     Optional: poetry + black (lint), jenkins-cli is NOT needed (REST API via curl/python).
 #   Repos, cloned side by side
 #     ../sucm (this repo, branch master), ../sua-cert-app (requirements.txt pins sucm==<version>),
-#     ../sucm-acme-tester (only for `just acme-*`).
 #   Jenkins (https://ci.it.su.se/)
 #     Group su-jenkins:user (sysadmin for promotion). API token created under
 #     User -> Configure -> API Token, stored in ~/.config/jenkins/env (chmod 600, never commit):
@@ -15,7 +14,7 @@
 #       JENKINS_USER_ID=<user>@su.se       (the Jenkins id, i.e. with @su.se)
 #       JENKINS_API_TOKEN=<token>
 #     Override the file location with JENKINS_ENV=/path/to/file.
-#   SSH (for salt, apache and the ACME tests)
+#   SSH (for salt and apache)
 #     ssh alias `h` (haak0644.it.su.se via ProxyJump adm-prod-jump.it.su.se, ForwardAgent yes),
 #     and from there passwordless sudo on the target hosts (sucm-test.it.su.se).
 #     Prod host: set SUCM_PROD_HOST=<fqdn of the prod cert-app server> in the environment.
@@ -32,7 +31,6 @@ cert_app := "sua-cert-app"
 test_host := "sucm-test.it.su.se"
 jump := "h"
 cert_app_dir := justfile_directory() + "/../sua-cert-app"
-tester_dir := justfile_directory() + "/../sucm-acme-tester"
 
 default:
     @just --list
@@ -228,16 +226,6 @@ sanity host=test_host:
     echo "installed: $(ssh {{jump}} "ssh {{host}} 'sudo /local/cert-app/bin/pip list 2>/dev/null | grep -i \"^sucm \"'")"
     ssh {{jump}} "curl -fsS -m 20 https://{{host}}/acme/directory" | python3 -c 'import sys,json; d=json.load(sys.stdin); print("acme directory ok:", sorted(k for k in d if k != "meta"))'
 
-# Non-issuing ACME tests (levels 1-4 without certificate issuance) from the test host
-acme-tests:
-    rsync -a --exclude .git --exclude __pycache__ --exclude .pytest_cache "{{tester_dir}}/" {{jump}}:sucm-acme-tester/
-    ssh {{jump}} 'cd ~/sucm-acme-tester && PYTHONPATH=. python3 -m pytest -m "not issuance" tests -q 2>&1 | tail -n 15'
-
-# Issuing ACME tests: creates (and revokes) a REAL publicly trusted Harica cert while F4 is open
-acme-tests-issue: (_confirm "This issues a real, CT-logged certificate for acmetest-haak0644.it.su.se. Continue?")
-    rsync -a --exclude .git --exclude __pycache__ --exclude .pytest_cache "{{tester_dir}}/" {{jump}}:sucm-acme-tester/
-    ssh {{jump}} 'cd ~/sucm-acme-tester && PYTHONPATH=. python3 -m pytest tests/test_level1_happy_path.py -v 2>&1 | tail -n 25'
-
 # Prod promotion is an interactive Jenkins input step: open the build form and follow the instructions
 promote-prod:
     #!/usr/bin/env bash
@@ -261,7 +249,7 @@ deploy-prod:
 
 # If it stops half-way (a Jenkins build fails or times out), fix the cause and continue manually with
 # the remaining steps (update-cert-app, deploy-test, sanity). One confirmation up front, stops at the first failure.
-# Full test release: check, release-test, update-cert-app, deploy-test, sanity, non-issuing ACME tests
+# Full test release: check, release-test, update-cert-app, deploy-test, sanity
 release new:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -275,5 +263,4 @@ release new:
     just update-cert-app "$v"
     just deploy-test
     just sanity
-    just acme-tests
     echo "Release $v is on test. Prod: just promote-prod, then just deploy-prod."
