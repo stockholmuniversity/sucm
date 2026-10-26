@@ -4,8 +4,8 @@
 #
 # REQUIREMENTS (run `just check` to verify them)
 #   Packages (Debian): sudo apt install just git gh python3 curl openssh-client   (just >= 1.40)
-#   Repos, cloned side by side:
-#     ~/code_su/sucm (this repo, branch master) and ~/code_su/sua-cert-app (requirements.txt pins sucm==<version>)
+#   Repos, cloned side by side in the same parent directory (anywhere; or set CERT_APP_DIR=/path to sua-cert-app):
+#     <dir>/sucm (this repo, branch master) and <dir>/sua-cert-app (requirements.txt pins sucm==<version>)
 #       gh repo clone stockholmuniversity/sucm; gh repo clone stockholmuniversity/sua-cert-app
 #   GitHub: `gh auth login` (HTTPS) and `gh auth setup-git`, with push rights to both repos.
 #     git user.name / user.email must be set.
@@ -27,7 +27,8 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 job := "sucm"
 cert_app := "sua-cert-app"
 test_host := "sucm-test.it.su.se"
-cert_app_dir := justfile_directory() + "/../sua-cert-app"
+# Default: sua-cert-app next to this repo (same parent directory); override with CERT_APP_DIR=/path
+cert_app_dir := env("CERT_APP_DIR", justfile_directory() + "/../sua-cert-app")
 
 default:
     @just --list
@@ -42,7 +43,7 @@ check:
     for t in just git python3 curl ssh gh; do command -v "$t" >/dev/null && ok "tool: $t" || bad "tool: $t not found"; done
     for t in poetry black; do command -v "$t" >/dev/null && ok "optional tool: $t" || echo "  --   optional tool $t missing"; done
     gh auth status >/dev/null 2>&1 && ok "gh logged in" || bad "gh not logged in (gh auth login)"
-    [ -d "{{cert_app_dir}}/.git" ] && ok "repo ../sua-cert-app" || bad "../sua-cert-app not cloned"
+    [ -d "{{cert_app_dir}}/.git" ] && ok "repo {{cert_app_dir}}" || bad "{{cert_app_dir}} not cloned (clone it next to sucm or set CERT_APP_DIR)"
     envf="${JENKINS_ENV:-$HOME/.config/jenkins/env}"
     if [ -r "$envf" ]; then
       ok "jenkins env file $envf"
