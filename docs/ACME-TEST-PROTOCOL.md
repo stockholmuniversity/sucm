@@ -53,8 +53,8 @@ level 1 decides whether the ACME feature is usable.
 | # | Finding | Cause | Action |
 |---|---------|-------|--------|
 | F1 | `finalize` returns HTTP 500 `ACME issuance is not configured on this server` | Commit `9b3a26a` ("Refactoring and hardening") moved `ca_plugin_name`/`secret_path` from hardcoded values (`Harica_EAB`, `SUCMTEST/test/ssl/`) into `[ACME]` in `sucm_conf.ini`. The section is missing on sucm-test, so issuance fails closed. Expected behaviour, but blocks level 1. | Add `[ACME]` to the config **via salt** (see F2) |
-| F2 | The config on sucm-test is managed by salt (`su-salt-states-services-cert`, `services/cert/app/init.sls`, `file.managed` of `/local/cert-app/conf/sucm_conf.ini`). A manual change on the server is **overwritten** on the next highstate/redeploy. | The template `files/local/cert-app/conf/sucm_conf.ini` lacks `[ACME]` | Add `[ACME]` to the template (values via `settings.sls`/pillar, different for test and prod) |
-| F3 | The server has a `[HARICA_ACME]` section that is not in the local salt template | The local salt repo may be behind the server (last commit 2026-08-19) | Verify that the template on the salt master's branch matches |
+| F2 | The config on sucm-test is managed by salt (`su-salt-states-services-cert`, `services/cert/app/init.sls`, `file.managed` of `/local/cert-app/conf/sucm_conf.ini`). A manual change on the server is **overwritten** on the next highstate/redeploy. | The template `files/local/cert-app/conf/sucm_conf.ini` lacks `[ACME]` | Add `[ACME]` to the template (values via `settings.sls`/pillar, different for test and prod). **FIXED 2026-10-26:** salt repo branch `test`, commit `c474734` "ACME config" (`[ACME]` in the template; `settings.sls`: prod `SUCM/prod/ssl/`, test `SUCMTEST/test/ssl/`, plugin `Harica_EAB`, empty `notify_group_id`). Verified on sucm-test: `sucm_conf.ini` rewritten 14:49 with the same `[ACME]` values. Still to do: merge `test` into `prod` before prod use |
+| F3 | The server has a `[HARICA_ACME]` section that is not in the local salt template | The local salt repo may be behind the server (last commit 2026-08-19) | Verify that the template on the salt master's branch matches. **RESOLVED 2026-10-26:** `[HARICA_ACME]` (directory/kid/hmac) is in the template on branch `test` |
 | F4 | `api_base_url = https://cm.harica.gr` on sucm-test (hardcoded in `settings.sls`, same for test and prod) | No separate Harica test environment configured | **Confirmed 2026-10-23: a real, publicly trusted certificate was issued.** Order 10020, `CN=acmetest-haak0644.it.su.se, O=Stockholms universitet`, issuer `CN=GEANT TLS ECC 1, O=Hellenic Academic and Research Institutions CA, C=GR`, valid until 2027-05-10, serial `0x0eecde42b50b39885829a5762fbf1910`. Will appear in CT logs. Revoke after testing (L3-02 can be used) and introduce a separate test CA for future runs |
 | F5 | The tester did not persist the account key (tester bug) | Random key per run | Fixed, the key is saved in the state dir |
 | F6 | **SUCM bug:** an ACME-issued cert gets no `Certificate` row, only `ActiveCertificate` (orphan). `finalize` still returns 200 and the certificate is delivered. Consequence: `revoke-cert` returns `unauthorized: No certificate issued to your account matches…` for the account's own cert (L3-02 FAIL), and renewal cannot find the existing row. | `[ACME] notify_group_id =` (empty, per `conf/sucm_conf.ini_example` "may be left empty") is read as `''` and written to the integer column `Notify_Group_Id` → MySQL 1366 *Incorrect integer value ''*. `add_update_record()` swallows the error and returns `"Failure"`, and `finalize_order()` does not check the result. Syslog 10:53:49. | (a)+(b) Code fixed in the sucm working tree (not committed/deployed): empty `notify_group_id` → `None` in `_load_acme_config()`; `submit_manual_csr()` aborts before ordering from the CA if the `Certificate` row cannot be saved. (c) Alternatively set a real `notify_group_id` in the test config. **FIXED and verified on v0.14.0 (2026-10-26):** cert 181 got its `Certificate` row and was revoked via ACME. Cert 180 (issued before the fix) still has no `Certificate` row and cannot be revoked via ACME; it must be cleaned up manually. |
@@ -71,7 +71,7 @@ level 1 decides whether the ACME feature is usable.
 | P1 | Account created in the portal, EAB credentials in `~/.config/sucm-acme-tester/tester.env` on the test host | ☑ |
 | P2 | Admin has activated the account | ☑ |
 | P3 | Test domain is on the account's allow-list | ☑ |
-| P4 | `[ACME]` set in `sucm_conf.ini` (ca_plugin_name, secret_path, notify_group_id), **via salt** so it survives deploys | ☐ **missing, see F1/F2** (temporary manual edit in place) |
+| P4 | `[ACME]` set in `sucm_conf.ini` (ca_plugin_name, secret_path, notify_group_id), **via salt** so it survives deploys | ☑ salted 2026-10-26 (see F2) |
 | P4b | Clarified which Harica environment is used and that a test cert is OK (F4) | ☐ |
 | P5 | Test host can reach sucm-test (directory responds) | ☑ |
 
@@ -154,7 +154,7 @@ Rerun on v0.14.0 2026-10-26: L1-01–08 PASS again (order 10024, cert_id 181).
 **Status 2026-10-23:** the whole flow with the custom client works (directory → newAccount with EAB → newOrder → authz →
 finalize → cert), after `[ACME]` was added temporarily (F1). On v0.14.0 (2026-10-26) the F6 fix is verified: issued certs get a
 `Certificate` row and can be revoked via ACME. Open: F7 (RS256 → HTTP 500), F8 (Link header), F9 (alreadyRevoked), certbot smoke
-test (L1-09), permanent `[ACME]` in the salt template (F2), Harica being production (F4: two real certs issued, 180 not revoked, 181 revoked).
+test (L1-09), Harica being production (F4: two real certs issued, 180 not revoked, 181 revoked).
 
 **Recommendation (go / no-go for SUCM v0.12.0 ACME):** `________` (decided once level 1 is green)
 
@@ -162,4 +162,5 @@ test (L1-09), permanent `[ACME]` in the salt template (F2), Harica being product
 - ☐ Accounts 10015/10016 (and any later test accounts) deactivated, EAB keys invalid
 - ☐ `tester.env` and `account_key.pem` deleted from the test host
 - ☐ Test cert/ActiveCertificate and Vault entries cleaned up (cert 180 not revoked and without `Certificate` row, orphan ActiveCertificate 10090; cert 181 revoked but its Vault entry/rows remain)
-- ☐ Temporary `[ACME]` section removed from `/local/cert-app/conf/sucm_conf.ini` on cert-test-app02 (or replaced by the salt template), and `sucm_conf.ini.bak-acmetest` deleted
+- ☑ Temporary `[ACME]` section replaced by the salt template (2026-10-26)
+- ☐ `sucm_conf.ini.bak-acmetest` deleted from `/local/cert-app/conf/` on cert-test-app02 (still present)
