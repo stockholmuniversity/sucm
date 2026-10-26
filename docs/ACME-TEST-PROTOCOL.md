@@ -181,6 +181,22 @@ test (L1-09), Harica being production (F4: two real certs issued, 180 not revoke
 
 **Recommendation (go / no-go for SUCM v0.12.0 ACME):** `________` (decided once level 1 is green)
 
+## Planned: real ACME clients (Level 5)
+
+Decision (2026-10-26): add real-client end-to-end tests **after** the open findings (F7, F8, F9) are fixed, so that
+client failures point at new problems rather than known ones. The design can be prepared earlier.
+
+| ID | Client | Scope | Status |
+|----|--------|-------|--------|
+| L5-01 | certbot | register with EAB, issue, renew, revoke (`e2e/certbot.sh`, today only L1-09 issue) | ☐ |
+| L5-02 | acme.sh | register with EAB, issue, renew | ☐ |
+| L5-03 | lego | register with EAB, issue | ☐ |
+| L5-04 | cert-manager / Caddy / Traefik | whichever clients are used in practice at SU | ☐ |
+
+Prerequisites: one ACME account per client (the server binds an EAB kid to the first account key), the test
+domain on each account's allow-list, and a Harica test environment (F4) before more real certificates are issued.
+Ask before any real issuance.
+
 ## After testing
 - ☐ Accounts 10015/10016 (and any later test accounts) deactivated, EAB keys invalid
 - ☐ `tester.env` and `account_key.pem` deleted from the test host
