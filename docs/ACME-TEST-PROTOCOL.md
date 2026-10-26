@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| System under test | SUCM **v0.12.0** (ACME server, `/acme/...`) |
+| System under test | SUCM **v0.12.0** (first runs), **v0.14.0** (rerun 2026-10-26; includes the ACME revoke fix) |
 | Environment | sucm-test (`https://sucm-test.it.su.se/acme/directory`) |
 | Test tool | `sucm-acme-tester` (see `git log`) |
 | Run from | haak0644.it.su.se as user haak0644 |
@@ -45,6 +45,9 @@ level 1 decides whether the ACME feature is usable.
 | 10:56 | Full level 1 (`pytest -m level1`) | **8/8 PASS**, one certificate issued for `acmetest-haak0644.it.su.se` |
 | 10:58 | Revoke of own cert via ACME | **FAIL** (F6) |
 | later | Levels 2–4 without issuance | 31 passed, 2 failed (F7, F8) |
+| 2026-10-26 15:20 | **Rerun against SUCM v0.14.0** (fix commit `73dee23` "ACME revoke bug fix" deployed). Non-issuing tests (`-m "not issuance"`) | 37 passed, 2 failed (F7 and F8 unchanged) |
+| 15:21 | Level 1 with issuance + new revoke steps | order 10024 → cert_id 181 issued (second real Harica cert, F4). **Certificate row now created** (F6 fixed), ACME revoke of own cert **succeeded** (audit.log: `account 10016 revoked certificate 181`, serial `0x300c8ab27e76d40f9e267565fffc3660`) |
+| 15:22 | Revoke the same cert again | `unauthorized` instead of `alreadyRevoked` (F9, minor) |
 
 ## Findings
 | # | Finding | Cause | Action |
@@ -54,9 +57,10 @@ level 1 decides whether the ACME feature is usable.
 | F3 | The server has a `[HARICA_ACME]` section that is not in the local salt template | The local salt repo may be behind the server (last commit 2026-08-19) | Verify that the template on the salt master's branch matches |
 | F4 | `api_base_url = https://cm.harica.gr` on sucm-test (hardcoded in `settings.sls`, same for test and prod) | No separate Harica test environment configured | **Confirmed 2026-10-23: a real, publicly trusted certificate was issued.** Order 10020, `CN=acmetest-haak0644.it.su.se, O=Stockholms universitet`, issuer `CN=GEANT TLS ECC 1, O=Hellenic Academic and Research Institutions CA, C=GR`, valid until 2027-05-10, serial `0x0eecde42b50b39885829a5762fbf1910`. Will appear in CT logs. Revoke after testing (L3-02 can be used) and introduce a separate test CA for future runs |
 | F5 | The tester did not persist the account key (tester bug) | Random key per run | Fixed, the key is saved in the state dir |
-| F6 | **SUCM bug:** an ACME-issued cert gets no `Certificate` row, only `ActiveCertificate` (orphan). `finalize` still returns 200 and the certificate is delivered. Consequence: `revoke-cert` returns `unauthorized: No certificate issued to your account matches…` for the account's own cert (L3-02 FAIL), and renewal cannot find the existing row. | `[ACME] notify_group_id =` (empty, per `conf/sucm_conf.ini_example` "may be left empty") is read as `''` and written to the integer column `Notify_Group_Id` → MySQL 1366 *Incorrect integer value ''*. `add_update_record()` swallows the error and returns `"Failure"`, and `finalize_order()` does not check the result. Syslog 10:53:49. | (a)+(b) Code fixed in the sucm working tree (not committed/deployed): empty `notify_group_id` → `None` in `_load_acme_config()`; `submit_manual_csr()` aborts before ordering from the CA if the `Certificate` row cannot be saved. (c) Alternatively set a real `notify_group_id` in the test config. **Do not assume the fix is deployed.** |
+| F6 | **SUCM bug:** an ACME-issued cert gets no `Certificate` row, only `ActiveCertificate` (orphan). `finalize` still returns 200 and the certificate is delivered. Consequence: `revoke-cert` returns `unauthorized: No certificate issued to your account matches…` for the account's own cert (L3-02 FAIL), and renewal cannot find the existing row. | `[ACME] notify_group_id =` (empty, per `conf/sucm_conf.ini_example` "may be left empty") is read as `''` and written to the integer column `Notify_Group_Id` → MySQL 1366 *Incorrect integer value ''*. `add_update_record()` swallows the error and returns `"Failure"`, and `finalize_order()` does not check the result. Syslog 10:53:49. | (a)+(b) Code fixed in the sucm working tree (not committed/deployed): empty `notify_group_id` → `None` in `_load_acme_config()`; `submit_manual_csr()` aborts before ordering from the CA if the `Certificate` row cannot be saved. (c) Alternatively set a real `notify_group_id` in the test config. **FIXED and verified on v0.14.0 (2026-10-26):** cert 181 got its `Certificate` row and was revoked via ACME. Cert 180 (issued before the fix) still has no `Certificate` row and cannot be revoked via ACME; it must be cleaned up manually. |
 | F7 | **SUCM bug:** a signature with `alg: RS256` against an EC account returns HTTP 500 with HTML instead of problem+json (L3-08) | Probably an unhandled exception in `verify_signature()` when the algorithm does not match the key type. Robustness/DoS only, no authentication bypass: the signature is not accepted | Catch all exceptions in JWS verification and respond `malformed`/`badSignatureAlgorithm`; check that `alg` fits the JWK's `kty`/`crv` |
-| F8 | `Link: <…/directory>;rel="index"` is missing on responses (L4-03) | Not implemented | Low priority. Add in `after_request` for `/acme/*` except directory |
+| F8 | `Link: <…/directory>;rel="index"` is missing on responses (L4-03) | Not implemented | Low priority. Add in `after_request` for `/acme/*` except directory. Still failing on v0.14.0 |
+| F9 | Revoking an already revoked certificate returns `unauthorized` instead of `alreadyRevoked` (RFC 8555 7.6) | Revoked certs are no longer an active, matching certificate for the account, so lookup fails before the revoked state can be recognized | Low priority. Cosmetic for clients; certbot treats both as failure |
 
 **Result codes:** PASS / FAIL / SKIP / N/A (deliberately unsupported) / BLOCKED.
 **Levels:** 1 = must work to obtain a certificate. 2 = renewal and basic negative cases. 3 = security/isolation. 4 = other RFC conformance.
@@ -80,6 +84,8 @@ e2e/certbot.sh                                                          # certbo
 ```
 
 ## Level 1 – Happy path (implemented)
+Rerun on v0.14.0 2026-10-26: L1-01–08 PASS again (order 10024, cert_id 181).
+
 | ID | Test case | RFC | Expected | Automated | Result | Notes |
 |----|-----------|-----|----------|-----------|--------|-------|
 | L1-01 | Directory has newNonce/newAccount/newOrder | 7.1.1 | JSON with URLs | `test_directory_has_required_resources` | **PASS** | |
@@ -95,7 +101,7 @@ e2e/certbot.sh                                                          # certbo
 ## Level 2 – Renewal and basic negative cases (partially implemented)
 | ID | Test case | RFC | Expected | Result | Notes |
 |----|-----------|-----|----------|--------|-------|
-| L2-01 | New order for the same domain (renewal) | 7.4 | new cert issued, replaces previous ActiveCertificate | ☐ | Issues a real cert; depends on F6 fix |
+| L2-01 | New order for the same domain (renewal) | 7.4 | new cert issued, replaces previous ActiveCertificate | ☐ | Issues a real cert; F6 fix now deployed, so this can be tested |
 | L2-02 | Domain outside allow-list | 7.4 | `rejectedIdentifier` | **PASS** | `test_l2_02` |
 | L2-03 | Wildcard (`*.domain`) | 7.4 | `rejectedIdentifier` (by design, not a bug) | **PASS** | `test_l2_03` |
 | L2-04 | Unknown EAB kid | 7.3.4 | `unauthorized`/`malformed` | **PASS** | `test_l2_04` |
@@ -111,13 +117,14 @@ e2e/certbot.sh                                                          # certbo
 | ID | Test case | RFC | Expected | Result | Notes |
 |----|-----------|-----|----------|--------|-------|
 | L3-01 | Account B fetches account A's order/authz/cert | 10.x | denied/404 | ☐ | Needs a second account |
-| L3-02 | Revoke own cert | 7.6 | 200 | **FAIL** | 10:58, `unauthorized: No certificate issued to your account matches…` due to F6 (Certificate row missing). Cert 180 (order 10020) is still not revoked |
+| L3-02 | Revoke own cert | 7.6 | 200 | **PASS** (v0.14.0) | `TestRevoke::test_6`. Earlier FAIL on v0.12.0 (F6). Cert 181 revoked 2026-10-26 15:22. Cert 180 (order 10020, pre-fix) is still not revoked |
+| L3-02b | Revoke the same cert again | 7.6 | `alreadyRevoked` | **FAIL** | `TestRevoke::test_7`: returns `unauthorized` (F9) |
 | L3-03 | Revoke another account's cert | 7.6 | `unauthorized` | ☐ | |
 | L3-04 | Revoke with wrong issuer/serial | 7.6 | denied | ☐ | |
 | L3-05 | Invalid signature | 6.2 | `malformed`/`unauthorized` | **PASS** | `test_l3_05` |
 | L3-06 | `url` in header ≠ request URL | 6.4 | rejected | **PASS** | `test_l3_06` |
 | L3-07 | Both `jwk` and `kid` | 6.2 | `malformed` | **PASS** | `test_l3_07` |
-| L3-08 | Unsupported alg (`none`, HS256 on outer JWS, RS256 with EC key) | 6.2 | `badSignatureAlgorithm`/`malformed`, no 500 | **FAIL** | `none`, `HS256`, missing alg: PASS. **`RS256` with an EC key returns HTTP 500 (HTML), see F7** |
+| L3-08 | Unsupported alg (`none`, HS256 on outer JWS, RS256 with EC key) | 6.2 | `badSignatureAlgorithm`/`malformed`, no 500 | **FAIL** | `none`, `HS256`, missing alg: PASS. **`RS256` with an EC key returns HTTP 500 (HTML), see F7.** Rechecked on v0.14.0: still failing |
 | L3-09 | Broken JSON, empty body, wrong Content-Type | 6.2 | problem+json, no 500 | **PASS** | `test_l3_09`, `test_l3_09b` (5 variants + wrong Content-Type, all 4xx) |
 | L3-10 | Oversized body (5 MB) | – | rejected | **PASS** | `test_l3_10` |
 | L3-11 | SQL-like/hostile identifier (SQLi, 5000 chars, CRLF) | – | rejected, no 500 | **PASS** | `test_l3_11` (4 variants) |
@@ -128,7 +135,7 @@ e2e/certbot.sh                                                          # certbo
 |----|-----------|-----|----------|--------|-------|
 | L4-01 | Error responses are `application/problem+json` with `urn:ietf:params:acme:error:*` | 6.7 | yes | **PASS** | `test_l4_01` |
 | L4-02 | Replay-Nonce on all responses, including errors | 6.5 | yes | **PASS** | `test_l4_02` |
-| L4-03 | `Link: <directory>;rel="index"` | 7.1 | yes | **FAIL** | Header missing on newOrder responses (F8) |
+| L4-03 | `Link: <directory>;rel="index"` | 7.1 | yes | **FAIL** | Header missing on newOrder responses (F8). Rechecked on v0.14.0: still failing |
 | L4-04 | `Cache-Control: no-store` on newNonce | 7.2 | yes | **PASS** | `test_l4_04` |
 | L4-05 | `onlyReturnExisting` | 7.3.1 | supported or N/A | ☐ | |
 | L4-06 | Account update / deactivate | 7.3.2, 7.3.6 | supported or N/A | ☐ | |
@@ -141,18 +148,18 @@ e2e/certbot.sh                                                          # certbo
 |-------|------|------|---------|---------|-----------|
 | 1 | 8 (L1-01–08) | 0 | 0 | 1 (L1-09 certbot) | ☐ (waiting for certbot) |
 | 2 | 9 (L2-02–08, 10, 11) | 0 | 0 | 2 (L2-01 renewal, L2-09) | ☐ |
-| 3 | 8 (L3-05–07, 09–12) | 2 (L3-02 revoke, L3-08 RS256) | 0 | 3 (L3-01, 03, 04) | ☐ |
+| 3 | 9 (L3-02, 05–07, 09–12) | 2 (L3-02b alreadyRevoked, L3-08 RS256) | 0 | 3 (L3-01, 03, 04) | ☐ |
 | 4 | 3 (L4-01, 02, 04) | 1 (L4-03) | 0 | 5 (L4-05–09) | ☐ |
 
 **Status 2026-10-23:** the whole flow with the custom client works (directory → newAccount with EAB → newOrder → authz →
-finalize → cert), after `[ACME]` was added temporarily (F1). Remaining: certbot smoke test (L1-09), permanent `[ACME]`
-in the salt template (F2), and the fact that the Harica environment is production (F4: a real cert was issued and should be revoked).
-Fixes for F6 exist in code but have not been deployed or retested.
+finalize → cert), after `[ACME]` was added temporarily (F1). On v0.14.0 (2026-10-26) the F6 fix is verified: issued certs get a
+`Certificate` row and can be revoked via ACME. Open: F7 (RS256 → HTTP 500), F8 (Link header), F9 (alreadyRevoked), certbot smoke
+test (L1-09), permanent `[ACME]` in the salt template (F2), Harica being production (F4: two real certs issued, 180 not revoked, 181 revoked).
 
 **Recommendation (go / no-go for SUCM v0.12.0 ACME):** `________` (decided once level 1 is green)
 
 ## After testing
 - ☐ Accounts 10015/10016 (and any later test accounts) deactivated, EAB keys invalid
 - ☐ `tester.env` and `account_key.pem` deleted from the test host
-- ☐ Test cert/ActiveCertificate and Vault entries cleaned up (cert 180, orphan ActiveCertificate 10090)
+- ☐ Test cert/ActiveCertificate and Vault entries cleaned up (cert 180 not revoked and without `Certificate` row, orphan ActiveCertificate 10090; cert 181 revoked but its Vault entry/rows remain)
 - ☐ Temporary `[ACME]` section removed from `/local/cert-app/conf/sucm_conf.ini` on cert-test-app02 (or replaced by the salt template), and `sucm_conf.ini.bak-acmetest` deleted
