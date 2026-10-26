@@ -1,35 +1,32 @@
 # SUCM task runner: Jenkins status helpers, release to test, promote/deploy to prod.
+# Meant to be run from your Linux "skal" machine (<user>.it.su.se), where Jenkins, GitHub and the
+# test/prod servers are reachable without any jump host.
 #
 # REQUIREMENTS (run `just check` to verify them)
-#   Local tools
-#     just >= 1.40, git, python3 (>= 3.9), curl, ssh, gh (GitHub CLI, logged in with push rights
-#     to stockholmuniversity/sucm and stockholmuniversity/sua-cert-app: `gh auth status`).
-#     Optional: poetry + black (lint), jenkins-cli is NOT needed (REST API via curl/python).
-#   Repos, cloned side by side
-#     ../sucm (this repo, branch master), ../sua-cert-app (requirements.txt pins sucm==<version>),
-#   Jenkins (https://ci.it.su.se/)
-#     Group su-jenkins:user (sysadmin for promotion). API token created under
-#     User -> Configure -> API Token, stored in ~/.config/jenkins/env (chmod 600, never commit):
+#   Packages (Debian): sudo apt install just git gh python3 curl openssh-client   (just >= 1.40)
+#   Repos, cloned side by side:
+#     ~/code_su/sucm (this repo, branch master) and ~/code_su/sua-cert-app (requirements.txt pins sucm==<version>)
+#       gh repo clone stockholmuniversity/sucm; gh repo clone stockholmuniversity/sua-cert-app
+#   GitHub: `gh auth login` (HTTPS) and `gh auth setup-git`, with push rights to both repos.
+#     git user.name / user.email must be set.
+#   Jenkins (https://ci.it.su.se/): group su-jenkins:user (sysadmin for promotion). Create an API token under
+#     User -> Configure -> API Token and store it in ~/.config/jenkins/env (chmod 600, never commit):
 #       JENKINS_URL=https://ci.it.su.se/
 #       JENKINS_USER_ID=<user>@su.se       (the Jenkins id, i.e. with @su.se)
 #       JENKINS_API_TOKEN=<token>
 #     Override the file location with JENKINS_ENV=/path/to/file.
-#   SSH (for salt and apache)
-#     ssh alias `h` (haak0644.it.su.se via ProxyJump adm-prod-jump.it.su.se, ForwardAgent yes),
-#     and from there passwordless sudo on the target hosts (sucm-test.it.su.se).
-#     Prod host: set SUCM_PROD_HOST=<fqdn of the prod cert-app server> in the environment.
-#   Network: VPN/firewall must allow ci.it.su.se, github.com and the jump host.
+#   SSH: key-based login from this machine to the test server (sucm-test.it.su.se) with passwordless sudo
+#     (needed for salt-call and apache). Prod: set SUCM_PROD_HOST=<fqdn of the prod cert-app server>.
 #
-# Mutating recipes (release-test, update-cert-app, deploy-*, restart-*) ask for confirmation;
-# set YES=1 to skip the prompt. Nothing here starts a build directly: builds are triggered by the
-# GitHub webhooks when you push, as before. Prod promotion is an interactive Jenkins step.
+# Mutating recipes (release*, update-cert-app, deploy-*) ask for confirmation; set YES=1 to skip the prompt.
+# Nothing here starts a build directly: builds are triggered by the GitHub webhooks when you push, as before.
+# Prod promotion is an interactive Jenkins step.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 job := "sucm"
 cert_app := "sua-cert-app"
 test_host := "sucm-test.it.su.se"
-jump := "h"
 cert_app_dir := justfile_directory() + "/../sua-cert-app"
 
 default:
@@ -49,11 +46,10 @@ check:
     envf="${JENKINS_ENV:-$HOME/.config/jenkins/env}"
     if [ -r "$envf" ]; then
       ok "jenkins env file $envf"
-      perm=$(stat -f %Lp "$envf" 2>/dev/null || stat -c %a "$envf"); [ "$perm" = 600 ] && ok "env file mode 600" || bad "env file mode is $perm (chmod 600)"
+      perm=$(stat -c %a "$envf" 2>/dev/null || stat -f %Lp "$envf"); [ "$perm" = 600 ] && ok "env file mode 600" || bad "env file mode is $perm (chmod 600)"
       just whoami >/dev/null 2>&1 && ok "jenkins login ($(just whoami))" || bad "jenkins login failed (user id with @su.se? token valid?)"
     else bad "missing $envf"; fi
-    ssh -o BatchMode=yes -o ConnectTimeout=15 {{jump}} true 2>/dev/null && ok "ssh {{jump}}" || bad "ssh {{jump}}"
-    ssh -o BatchMode=yes -o ConnectTimeout=20 {{jump}} "ssh -o BatchMode=yes {{test_host}} 'sudo -n true'" 2>/dev/null && ok "ssh {{test_host}} + sudo" || bad "ssh/sudo on {{test_host}}"
+    ssh -o BatchMode=yes -o ConnectTimeout=20 {{test_host}} 'sudo -n true' 2>/dev/null && ok "ssh {{test_host}} + sudo" || bad "ssh/sudo on {{test_host}}"
     [ -n "${SUCM_PROD_HOST:-}" ] && ok "SUCM_PROD_HOST=$SUCM_PROD_HOST" || echo "  --   SUCM_PROD_HOST not set (only needed for prod deploy)"
     exit $fail
 
@@ -200,16 +196,16 @@ update-cert-app new:
     just --justfile "{{justfile()}}" wait-build {{cert_app}} rev "$(git rev-parse HEAD)"
     echo "sua-cert-app built. Next: just deploy-test"
 
-# Dry-run of salt (state.apply test=True) on a host, via the jump host; read-only
+# Dry-run of salt (state.apply test=True) on a host; read-only
 salt-dry host=test_host:
-    ssh {{jump}} "ssh {{host}} 'sudo salt-call state.apply test=True'" | tail -n 25
+    ssh {{host}} 'sudo salt-call state.apply test=True' | tail -n 25
 
 # Apply salt on a host and fail unless the summary says Failed: 0
 [private]
 _salt-apply host:
     #!/usr/bin/env bash
     set -euo pipefail
-    out=$(ssh {{jump}} "ssh {{host}} 'sudo salt-call state.apply'" 2>&1) || true
+    out=$(ssh {{host}} 'sudo salt-call state.apply' 2>&1) || true
     echo "$out" | tail -n 12
     echo "$out" | grep -qE '^Failed: +0$' || { echo "salt reported failures"; exit 1; }
 
@@ -217,16 +213,16 @@ _salt-apply host:
 deploy-test: (salt-dry test_host)
     just _confirm "Apply salt and restart apache2 on {{test_host}}?"
     just _salt-apply {{test_host}}
-    ssh {{jump}} "ssh {{test_host}} 'sudo systemctl restart apache2.service && systemctl is-active apache2.service'"
+    ssh {{test_host}} 'sudo systemctl restart apache2.service && systemctl is-active apache2.service'
 
 # Installed sucm version and ACME directory on a host (read-only)
 sanity host=test_host:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "installed: $(ssh {{jump}} "ssh {{host}} 'sudo /local/cert-app/bin/pip list 2>/dev/null | grep -i \"^sucm \"'")"
-    ssh {{jump}} "curl -fsS -m 20 https://{{host}}/acme/directory" | python3 -c 'import sys,json; d=json.load(sys.stdin); print("acme directory ok:", sorted(k for k in d if k != "meta"))'
+    echo "installed: $(ssh {{host}} 'sudo /local/cert-app/bin/pip list 2>/dev/null | grep -i "^sucm "')"
+    curl -fsS -m 20 "https://{{host}}/acme/directory" | python3 -c 'import sys,json; d=json.load(sys.stdin); print("acme directory ok:", sorted(k for k in d if k != "meta"))'
 
-# Prod promotion is an interactive Jenkins input step: open the build form and follow the instructions
+# Prod promotion is an interactive Jenkins input step: prints the build form URL and what to do
 promote-prod:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -234,7 +230,6 @@ promote-prod:
     echo "Open: ${JENKINS_URL%/}/job/{{cert_app}}/build?delay=0sec"
     echo "Build with parameters (branch=master, rest default), then answer the promotion prompt:"
     echo "choose the codename(s) to promote from test to prod. Watch with: just status {{cert_app}}"
-    open "${JENKINS_URL%/}/job/{{cert_app}}/build?delay=0sec" 2>/dev/null || true
 
 # Deploy to prod with salt (needs SUCM_PROD_HOST), then restart apache
 deploy-prod:
@@ -244,7 +239,7 @@ deploy-prod:
     just salt-dry "$SUCM_PROD_HOST"
     just _confirm "Apply salt and restart apache2 on PROD host $SUCM_PROD_HOST?"
     just _salt-apply "$SUCM_PROD_HOST"
-    ssh {{jump}} "ssh $SUCM_PROD_HOST 'sudo systemctl restart apache2.service && systemctl is-active apache2.service'"
+    ssh "$SUCM_PROD_HOST" 'sudo systemctl restart apache2.service && systemctl is-active apache2.service'
     just sanity "$SUCM_PROD_HOST"
 
 # If it stops half-way (a Jenkins build fails or times out), fix the cause and continue manually with
