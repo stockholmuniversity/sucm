@@ -148,7 +148,7 @@ wait-build name key value timeout="1200":
         time.sleep(3)
     sys.exit("timeout waiting for {{name}} {{key}}={{value}}")
 
-# Step 1-7: bump version, commit+push master, wait for build, tag, push tag, wait for the tag build
+# Step 1-7: bump version, commit, tag, push master+tag together, wait for the tag build
 release-test new:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -172,12 +172,14 @@ release-test new:
     PY
     git add pyproject.toml
     git commit -m "Bump version $old -> $v"
-    git push origin master
-    sha=$(git rev-parse HEAD)
-    just wait-build {{job}} rev "$sha"
     git tag -a "$v" -m "Release $v"
-    git push origin "refs/tags/$v"
-    just wait-build {{job}} branch "$v"
+    git push origin master "refs/tags/$v"
+    # Only the tag build produces the release; the master build still runs via webhook but is not awaited
+    just wait-build {{job}} branch "$v" || {
+      echo "Tag build for $v failed. If the tag must be reused, remove it:"
+      echo "  git tag -d $v && git push origin :refs/tags/$v"
+      exit 1
+    }
     echo "sucm $v built. Next: just update-cert-app $v"
 
 # Step 8-9: pin the new sucm version in sua-cert-app, push, wait for its build
