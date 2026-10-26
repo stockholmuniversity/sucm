@@ -258,3 +258,22 @@ deploy-prod:
     just _salt-apply "$SUCM_PROD_HOST"
     ssh {{jump}} "ssh $SUCM_PROD_HOST 'sudo systemctl restart apache2.service && systemctl is-active apache2.service'"
     just sanity "$SUCM_PROD_HOST"
+
+# If it stops half-way (a Jenkins build fails or times out), fix the cause and continue manually with
+# the remaining steps (update-cert-app, deploy-test, sanity). One confirmation up front, stops at the first failure.
+# Full test release: check, release-test, update-cert-app, deploy-test, sanity, non-issuing ACME tests
+release new:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    v="{{new}}"
+    [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "version must look like 0.15.0"; exit 1; }
+    just check
+    just version
+    just _confirm "Release sucm $v to TEST (bump, tag, build, sua-cert-app, salt apply, apache restart)? Prod is not touched."
+    export YES=1
+    just release-test "$v"
+    just update-cert-app "$v"
+    just deploy-test
+    just sanity
+    just acme-tests
+    echo "Release $v is on test. Prod: just promote-prod, then just deploy-prod."
