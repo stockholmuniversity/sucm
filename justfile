@@ -159,7 +159,8 @@ release-test new:
     git fetch -q origin --tags
     [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/master)" ] || { echo "master is not in sync with origin/master"; exit 1; }
     ! git rev-parse -q --verify "refs/tags/$v" >/dev/null || { echo "tag $v already exists"; exit 1; }
-    echo "current: $(grep -m1 '^version' pyproject.toml)"
+    old=$(sed -n -E 's/^version = "([^"]+)"/\1/p' pyproject.toml | head -1)
+    echo "current: $old"
     just _confirm "Bump to $v, push master, tag $v and push the tag?"
     python3 - "$v" <<'PY'
     import re, sys
@@ -170,11 +171,11 @@ release-test new:
     open(p, "w").write(s)
     PY
     git add pyproject.toml
-    git commit -m "New version"
+    git commit -m "Bump version $old -> $v"
     git push origin master
     sha=$(git rev-parse HEAD)
     just wait-build {{job}} rev "$sha"
-    git tag -a "$v" -m "New release."
+    git tag -a "$v" -m "Release $v"
     git push origin "refs/tags/$v"
     just wait-build {{job}} branch "$v"
     echo "sucm $v built. Next: just update-cert-app $v"
@@ -188,11 +189,12 @@ update-cert-app new:
     [ "$(git branch --show-current)" = master ] || { echo "sua-cert-app: not on master"; exit 1; }
     [ -z "$(git status --porcelain)" ] || { echo "sua-cert-app: working tree not clean"; exit 1; }
     git pull -q --ff-only
-    echo "current: $(grep '^sucm==' requirements.txt)"
+    old=$(sed -n -E 's/^sucm==(.*)/\1/p' requirements.txt | head -1)
+    echo "current: sucm==$old"
     just --justfile "{{justfile()}}" _confirm "Set sucm==$v in sua-cert-app/requirements.txt, commit and push?"
     sed -i.bak -E "s/^sucm==.*/sucm==$v/" requirements.txt && rm requirements.txt.bak
     git add requirements.txt
-    git commit -m "New version"
+    git commit -m "Update sucm $old -> $v"
     git push origin master
     just --justfile "{{justfile()}}" wait-build {{cert_app}} rev "$(git rev-parse HEAD)"
     echo "sua-cert-app built. Next: just deploy-test"
