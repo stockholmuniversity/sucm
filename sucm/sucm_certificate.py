@@ -271,7 +271,7 @@ class SucmCertificate:
         secret_backend.secret_path = self.secret_path
         self.csr = secret_backend.read_secret(self.csr_filename)
 
-    def commit_changes_to_db(self):
+    def commit_changes_to_db(self, raise_on_failure=False):
         # print(f"Committing changes to db. certificate_authority_id: {self.certificate_authority_id}")
         if self.status is None:
             self.status = "New"
@@ -291,7 +291,15 @@ class SucmCertificate:
             "Create_Date": self.create_date,
             "Expiry_Date": self.expiry_date,
         }
-        sucm_db.add_update_record("Certificate", cert_data)
+        if raise_on_failure:
+            # Fail fast when continuing without the Certificate row would
+            # leave inconsistent state behind (the F6 orphan problem: an
+            # ActiveCertificate with no Certificate row). Callers that must
+            # not proceed to ordering from the CA after a failed write use
+            # this instead of the legacy "Failure"-string swallow.
+            sucm_db.add_update_record_or_raise("Certificate", cert_data)
+        else:
+            sucm_db.add_update_record("Certificate", cert_data)
 
     def commit_fullchain_to_db(self):
         active_cert_id = sucm_db.claim_next_id("ActiveCertificate")
@@ -395,7 +403,11 @@ class SucmCertificate:
         self.csr = csr
         self.status = "New CSR"
         self.commit_changes_to_vault()
-        self.commit_changes_to_db()
+        # Fail fast: the Certificate row must exist before renew_cert_with_csr()
+        # contacts the CA, otherwise the issued cert would be stored as an
+        # orphan ActiveCertificate with no Certificate row (finding F6 -
+        # breaks later revoke/renewal lookups).
+        self.commit_changes_to_db(raise_on_failure=True)
 
     def revoke_cert(self, active_cert_id):
         print(

@@ -2,6 +2,15 @@ import mysql.connector
 
 from .sucm_settings import cfg, sys_logger
 
+
+class SucmDbError(Exception):
+    """A database write failed (the underlying error is logged at the point
+    of failure). Raised instead of the legacy "Failure" return string by the
+    _or_raise variants so callers that must not continue after a failed
+    write (e.g. ACME finalize before ordering from the CA) can rely on an
+    exception instead of checking sentinel strings."""
+
+
 dbHost = cfg.get("mysql_connector", "host")
 dbDatabase = cfg.get("mysql_connector", "database")
 dbUser = cfg.get("mysql_connector", "user")
@@ -267,3 +276,17 @@ class SucmMysql:
         except (Exception, mysql.connector.Error) as error:
             sys_logger.error("Error while modifying data: %s", error)
             return "Failure"
+
+    def add_update_record_or_raise(self, table_name, data):
+        """
+        Same INSERT ... ON DUPLICATE KEY UPDATE as add_update_record(), but
+        raises SucmDbError on failure instead of returning "Failure". Use
+        this when continuing after a failed write would leave inconsistent
+        state behind (e.g. an issued cert with no Certificate row - the F6
+        orphan problem).
+        """
+        if self.add_update_record(table_name, data) != "Success":
+            raise SucmDbError(
+                f"Failed to write record to table {table_name!r} "
+                "(see syslog for the underlying error)"
+            )

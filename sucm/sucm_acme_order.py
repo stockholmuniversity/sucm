@@ -59,6 +59,14 @@ def _load_acme_config():
         ACME_CA_PLUGIN_NAME = cfg.get("ACME", "ca_plugin_name", fallback=None)
         ACME_SECRET_PATH = cfg.get("ACME", "secret_path", fallback=None)
         ACME_NOTIFY_GROUP_ID = cfg.get("ACME", "notify_group_id", fallback=None)
+        # An empty notify_group_id is explicitly allowed (see
+        # conf/sucm_conf.ini_example) and means "no notification group".
+        # Normalize it to None so it is written as SQL NULL - the raw empty
+        # string would violate the integer column (MySQL 1366), which used
+        # to silently abort the Certificate-row insert and leave an orphan
+        # ActiveCertificate behind (finding F6).
+        if ACME_NOTIFY_GROUP_ID is not None and not ACME_NOTIFY_GROUP_ID.strip():
+            ACME_NOTIFY_GROUP_ID = None
 
 
 _load_acme_config()

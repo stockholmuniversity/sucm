@@ -645,8 +645,27 @@ def submit_csr_response():
         )
 
     cert = SucmCertificate(cert_id=cert_id)
-    cert.submit_manual_csr(csr_data)
-    cert.renew_cert_with_csr()
+    try:
+        cert.submit_manual_csr(csr_data)
+        cert.renew_cert_with_csr()
+    except Exception as e:
+        # submit_manual_csr() now raises (fail-fast) if the Certificate row
+        # cannot be written, to avoid issuing an orphan ActiveCertificate
+        # with no Certificate row (finding F6). Surface it instead of a bare
+        # 500 so the operator sees what happened.
+        all_active_certs = cert.get_all_active_certs(cert_id=cert_id)
+        del cert
+        noti_type = "Danger"
+        noti_msg = f"Failed to save or issue certificate: {e}"
+        return redirect(
+            url_for(
+                "main.inspect_cert",
+                cert_id=cert_id,
+                notification_message=noti_msg,
+                notification_type=noti_type,
+                all_active_certs=all_active_certs,
+            )
+        )
     all_active_certs = cert.get_all_active_certs(cert_id=cert_id)
     del cert
     noti_type = "Success"
