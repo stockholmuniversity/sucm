@@ -224,6 +224,16 @@ _deploy-test:
     just _salt-apply {{test_host}}
     ssh {{test_host}} 'sudo systemctl restart apache2.service && systemctl is-active apache2.service'
 
+# Fast path: upgrade only the sua-cert-app package on a host and restart apache (no salt, no other package upgrades)
+[private]
+_upgrade-app host:
+    ssh {{host}} 'sudo apt-get update -qq && sudo apt-get install -y --only-upgrade sua-cert-app && sudo systemctl restart apache2.service && systemctl is-active apache2.service'
+
+# Quick deploy of the newest sua-cert-app build to test (for config changes in salt use deploy-test)
+upgrade-test:
+    just _confirm "Upgrade sua-cert-app and restart apache2 on {{test_host}}?"
+    just _upgrade-app {{test_host}}
+
 # Installed sucm version and apache state on a host (read-only)
 sanity host=test_host:
     #!/usr/bin/env bash
@@ -253,7 +263,7 @@ deploy-prod:
 
 # If it stops half-way (a Jenkins build fails or times out), fix the cause and continue manually with
 # the remaining steps (update-cert-app, deploy-test, sanity). One confirmation up front, stops at the first failure.
-# Full test release: check, release-test, update-cert-app, deploy-test, sanity
+# Full test release: check, release-test, update-cert-app, package upgrade on test, sanity
 release new:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -261,10 +271,10 @@ release new:
     [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "version must look like 0.15.0"; exit 1; }
     just check
     just version
-    just _confirm "Release sucm $v to TEST (bump, tag, build, sua-cert-app, salt apply, apache restart)? Prod is not touched."
+    just _confirm "Release sucm $v to TEST (bump, tag, build, sua-cert-app, package upgrade, apache restart)? Prod is not touched."
     export YES=1
     just release-test "$v"
     just update-cert-app "$v"
-    just _deploy-test
+    just _upgrade-app {{test_host}}
     just sanity
     echo "Release $v is on test. Prod: just promote-prod, then just deploy-prod."
