@@ -1,15 +1,71 @@
-# Read-only helpers for the SUCM Jenkins jobs (REST API via curl).
-# Credentials are read from ~/.config/jenkins/env (override with JENKINS_ENV):
-#   JENKINS_URL=https://ci.it.su.se/
-#   JENKINS_USER_ID=<user>
-#   JENKINS_API_TOKEN=<token>
+# SUCM task runner: Jenkins status helpers, release to test, promote/deploy to prod, ACME checks.
+#
+# REQUIREMENTS (run `just check` to verify them)
+#   Local tools
+#     just >= 1.40, git, python3 (>= 3.9), curl, ssh, gh (GitHub CLI, logged in with push rights
+#     to stockholmuniversity/sucm and stockholmuniversity/sua-cert-app: `gh auth status`).
+#     Optional: poetry + black (lint), jenkins-cli is NOT needed (REST API via curl/python).
+#   Repos, cloned side by side
+#     ../sucm (this repo, branch master), ../sua-cert-app (requirements.txt pins sucm==<version>),
+#     ../sucm-acme-tester (only for `just acme-*`).
+#   Jenkins (https://ci.it.su.se/)
+#     Group su-jenkins:user (sysadmin for promotion). API token created under
+#     User -> Configure -> API Token, stored in ~/.config/jenkins/env (chmod 600, never commit):
+#       JENKINS_URL=https://ci.it.su.se/
+#       JENKINS_USER_ID=<user>@su.se       (the Jenkins id, i.e. with @su.se)
+#       JENKINS_API_TOKEN=<token>
+#     Override the file location with JENKINS_ENV=/path/to/file.
+#   SSH (for salt, apache and the ACME tests)
+#     ssh alias `h` (haak0644.it.su.se via ProxyJump adm-prod-jump.it.su.se, ForwardAgent yes),
+#     and from there passwordless sudo on the target hosts (sucm-test.it.su.se).
+#     Prod host: set SUCM_PROD_HOST=<fqdn of the prod cert-app server> in the environment.
+#   Network: VPN/firewall must allow ci.it.su.se, github.com and the jump host.
+#
+# Mutating recipes (release-test, update-cert-app, deploy-*, restart-*) ask for confirmation;
+# set YES=1 to skip the prompt. Nothing here starts a build directly: builds are triggered by the
+# GitHub webhooks when you push, as before. Prod promotion is an interactive Jenkins step.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 job := "sucm"
+cert_app := "sua-cert-app"
+test_host := "sucm-test.it.su.se"
+jump := "h"
+cert_app_dir := justfile_directory() + "/../sua-cert-app"
+tester_dir := justfile_directory() + "/../sucm-acme-tester"
 
 default:
     @just --list
+
+# Verify local tools, credentials, Jenkins login, ssh and GitHub access (read-only)
+check:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    fail=0
+    ok()  { printf '  ok   %s\n' "$1"; }
+    bad() { printf '  FAIL %s\n' "$1"; fail=1; }
+    for t in just git python3 curl ssh gh; do command -v "$t" >/dev/null && ok "tool: $t" || bad "tool: $t not found"; done
+    for t in poetry black; do command -v "$t" >/dev/null && ok "optional tool: $t" || echo "  --   optional tool $t missing"; done
+    gh auth status >/dev/null 2>&1 && ok "gh logged in" || bad "gh not logged in (gh auth login)"
+    [ -d "{{cert_app_dir}}/.git" ] && ok "repo ../sua-cert-app" || bad "../sua-cert-app not cloned"
+    envf="${JENKINS_ENV:-$HOME/.config/jenkins/env}"
+    if [ -r "$envf" ]; then
+      ok "jenkins env file $envf"
+      perm=$(stat -f %Lp "$envf" 2>/dev/null || stat -c %a "$envf"); [ "$perm" = 600 ] && ok "env file mode 600" || bad "env file mode is $perm (chmod 600)"
+      just whoami >/dev/null 2>&1 && ok "jenkins login ($(just whoami))" || bad "jenkins login failed (user id with @su.se? token valid?)"
+    else bad "missing $envf"; fi
+    ssh -o BatchMode=yes -o ConnectTimeout=15 {{jump}} true 2>/dev/null && ok "ssh {{jump}}" || bad "ssh {{jump}}"
+    ssh -o BatchMode=yes -o ConnectTimeout=20 {{jump}} "ssh -o BatchMode=yes {{test_host}} 'sudo -n true'" 2>/dev/null && ok "ssh {{test_host}} + sudo" || bad "ssh/sudo on {{test_host}}"
+    [ -n "${SUCM_PROD_HOST:-}" ] && ok "SUCM_PROD_HOST=$SUCM_PROD_HOST" || echo "  --   SUCM_PROD_HOST not set (only needed for prod deploy)"
+    exit $fail
+
+# Current version in pyproject.toml, latest tag, and what sua-cert-app pins
+version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "pyproject.toml : $(grep -m1 '^version' pyproject.toml)"
+    echo "latest tag     : $(git tag --sort=-creatordate | head -1)"
+    echo "sua-cert-app   : $(grep '^sucm==' "{{cert_app_dir}}/requirements.txt")"
 
 # Show which Jenkins user the token authenticates as
 whoami:
@@ -49,3 +105,156 @@ log name=job build="lastBuild":
     set -euo pipefail
     set -a; . "${JENKINS_ENV:-$HOME/.config/jenkins/env}"; set +a
     curl -fsS -m 60 -u "$JENKINS_USER_ID:$JENKINS_API_TOKEN" "${JENKINS_URL%/}/job/{{name}}/{{build}}/consoleText"
+
+# ---------------------------------------------------------------------------------------------
+# Release / deploy (see the Confluence page "Deployment")
+# ---------------------------------------------------------------------------------------------
+
+# Ask for confirmation (skipped with YES=1)
+[private]
+_confirm msg:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [ "${YES:-}" = 1 ] && exit 0
+    read -r -p "{{msg}} [y/N] " a
+    [ "$a" = y ] || [ "$a" = Y ] || { echo "aborted"; exit 1; }
+
+# Poll Jenkins until a build of <name> with parameter <key>=<value> exists and finishes; fail unless SUCCESS
+[private]
+wait-build name key value timeout="1200":
+    #!/usr/bin/env python3
+    import json, os, sys, time, urllib.parse, urllib.request, base64
+    env = {}
+    for line in open(os.environ.get("JENKINS_ENV", os.path.expanduser("~/.config/jenkins/env"))):
+        if "=" in line and not line.startswith("#"):
+            k, v = line.strip().split("=", 1)
+            env[k] = v
+    tree = "builds[number,result,building,actions[parameters[name,value]]]{0,15}"
+    url = env["JENKINS_URL"].rstrip("/") + "/job/{{name}}/api/json?tree=" + urllib.parse.quote(tree, safe=",")
+    auth = base64.b64encode((env["JENKINS_USER_ID"] + ":" + env["JENKINS_API_TOKEN"]).encode()).decode()
+    deadline = time.time() + int("{{timeout}}")
+    seen = None
+    while time.time() < deadline:
+        req = urllib.request.Request(url, headers={"Authorization": "Basic " + auth})
+        builds = json.load(urllib.request.urlopen(req, timeout=30))["builds"]
+        match = [b for b in builds
+                 if any(p.get("name") == "{{key}}" and p.get("value") == "{{value}}"
+                        for a in b["actions"] for p in a.get("parameters", []))]
+        if match:
+            b = max(match, key=lambda x: x["number"])
+            if seen != (b["number"], b["building"]):
+                print("{{name}} #%d %s" % (b["number"], "running" if b["building"] else b["result"]), flush=True)
+                seen = (b["number"], b["building"])
+            if not b["building"]:
+                sys.exit(0 if b["result"] == "SUCCESS" else "build %s #%d finished with %s" % ("{{name}}", b["number"], b["result"]))
+        elif seen is None:
+            print("waiting for {{name}} build with {{key}}={{value}} to appear...", flush=True)
+            seen = ()
+        time.sleep(10)
+    sys.exit("timeout waiting for {{name}} {{key}}={{value}}")
+
+# Step 1-7: bump version, commit+push master, wait for build, tag, push tag, wait for the tag build
+release-test new:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    v="{{new}}"
+    [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "version must look like 0.15.0"; exit 1; }
+    [ "$(git branch --show-current)" = master ] || { echo "not on master"; exit 1; }
+    [ -z "$(git status --porcelain)" ] || { echo "working tree not clean:"; git status --short; exit 1; }
+    git fetch -q origin --tags
+    [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/master)" ] || { echo "master is not in sync with origin/master"; exit 1; }
+    ! git rev-parse -q --verify "refs/tags/$v" >/dev/null || { echo "tag $v already exists"; exit 1; }
+    echo "current: $(grep -m1 '^version' pyproject.toml)"
+    just _confirm "Bump to $v, push master, tag $v and push the tag?"
+    python3 - "$v" <<'PY'
+    import re, sys
+    p = "pyproject.toml"
+    s = open(p).read()
+    s, n = re.subn(r'(?m)^version = "[^"]+"', 'version = "%s"' % sys.argv[1], s, count=1)
+    assert n == 1, "version line not found"
+    open(p, "w").write(s)
+    PY
+    git add pyproject.toml
+    git commit -m "New version"
+    git push origin master
+    sha=$(git rev-parse HEAD)
+    just wait-build {{job}} rev "$sha"
+    git tag -a "$v" -m "New release."
+    git push origin "refs/tags/$v"
+    just wait-build {{job}} branch "$v"
+    echo "sucm $v built. Next: just update-cert-app $v"
+
+# Step 8-9: pin the new sucm version in sua-cert-app, push, wait for its build
+update-cert-app new:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    v="{{new}}"
+    cd "{{cert_app_dir}}"
+    [ "$(git branch --show-current)" = master ] || { echo "sua-cert-app: not on master"; exit 1; }
+    [ -z "$(git status --porcelain)" ] || { echo "sua-cert-app: working tree not clean"; exit 1; }
+    git pull -q --ff-only
+    echo "current: $(grep '^sucm==' requirements.txt)"
+    just --justfile "{{justfile()}}" _confirm "Set sucm==$v in sua-cert-app/requirements.txt, commit and push?"
+    sed -i.bak -E "s/^sucm==.*/sucm==$v/" requirements.txt && rm requirements.txt.bak
+    git add requirements.txt
+    git commit -m "New version"
+    git push origin master
+    just --justfile "{{justfile()}}" wait-build {{cert_app}} rev "$(git rev-parse HEAD)"
+    echo "sua-cert-app built. Next: just deploy-test"
+
+# Dry-run of salt (state.apply test=True) on a host, via the jump host; read-only
+salt-dry host=test_host:
+    ssh {{jump}} "ssh {{host}} 'sudo salt-call state.apply test=True'" | tail -n 25
+
+# Apply salt on a host and fail unless the summary says Failed: 0
+[private]
+_salt-apply host:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out=$(ssh {{jump}} "ssh {{host}} 'sudo salt-call state.apply'" 2>&1) || true
+    echo "$out" | tail -n 12
+    echo "$out" | grep -qE '^Failed: +0$' || { echo "salt reported failures"; exit 1; }
+
+# Step 10: apply salt on sucm-test and restart apache
+deploy-test: (salt-dry test_host)
+    just _confirm "Apply salt and restart apache2 on {{test_host}}?"
+    just _salt-apply {{test_host}}
+    ssh {{jump}} "ssh {{test_host}} 'sudo systemctl restart apache2.service && systemctl is-active apache2.service'"
+
+# Installed sucm version and ACME directory on a host (read-only)
+sanity host=test_host:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "installed: $(ssh {{jump}} "ssh {{host}} 'sudo /local/cert-app/bin/pip list 2>/dev/null | grep -i \"^sucm \"'")"
+    ssh {{jump}} "curl -fsS -m 20 https://{{host}}/acme/directory" | python3 -c 'import sys,json; d=json.load(sys.stdin); print("acme directory ok:", sorted(k for k in d if k != "meta"))'
+
+# Non-issuing ACME tests (levels 1-4 without certificate issuance) from the test host
+acme-tests:
+    rsync -a --exclude .git --exclude __pycache__ --exclude .pytest_cache "{{tester_dir}}/" {{jump}}:sucm-acme-tester/
+    ssh {{jump}} 'cd ~/sucm-acme-tester && PYTHONPATH=. python3 -m pytest -m "not issuance" tests -q 2>&1 | tail -n 15'
+
+# Issuing ACME tests: creates (and revokes) a REAL publicly trusted Harica cert while F4 is open
+acme-tests-issue: (_confirm "This issues a real, CT-logged certificate for acmetest-haak0644.it.su.se. Continue?")
+    rsync -a --exclude .git --exclude __pycache__ --exclude .pytest_cache "{{tester_dir}}/" {{jump}}:sucm-acme-tester/
+    ssh {{jump}} 'cd ~/sucm-acme-tester && PYTHONPATH=. python3 -m pytest tests/test_level1_happy_path.py -v 2>&1 | tail -n 25'
+
+# Prod promotion is an interactive Jenkins input step: open the build form and follow the instructions
+promote-prod:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    set -a; . "${JENKINS_ENV:-$HOME/.config/jenkins/env}"; set +a
+    echo "Open: ${JENKINS_URL%/}/job/{{cert_app}}/build?delay=0sec"
+    echo "Build with parameters (branch=master, rest default), then answer the promotion prompt:"
+    echo "choose the codename(s) to promote from test to prod. Watch with: just status {{cert_app}}"
+    open "${JENKINS_URL%/}/job/{{cert_app}}/build?delay=0sec" 2>/dev/null || true
+
+# Deploy to prod with salt (needs SUCM_PROD_HOST), then restart apache
+deploy-prod:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    : "${SUCM_PROD_HOST:?set SUCM_PROD_HOST to the prod cert-app server fqdn}"
+    just salt-dry "$SUCM_PROD_HOST"
+    just _confirm "Apply salt and restart apache2 on PROD host $SUCM_PROD_HOST?"
+    just _salt-apply "$SUCM_PROD_HOST"
+    ssh {{jump}} "ssh $SUCM_PROD_HOST 'sudo systemctl restart apache2.service && systemctl is-active apache2.service'"
+    just sanity "$SUCM_PROD_HOST"
