@@ -72,6 +72,23 @@ level 1 decides whether the ACME feature is usable.
 
 **Side effects:** one more real, publicly trusted cert issued and revoked (cert 181, serial `0x300c8ab27e76d40f9e267565fffc3660`); cert 180 from run 1 is still unrevoked (see F4/F6). Issuance is deferred until a Harica test environment exists.
 
+## Run 3 – SUCM v0.25.0 (2026-10-27)
+**Setup:** SUCM v0.25.0 on sucm-test (released with `just release`), account 10016, run from haak0644.it.su.se as haak0644.
+
+**Commands and outcome**
+| Command | Issues cert? | Result |
+|---------|--------------|--------|
+| `pytest -m "not issuance"` | no | 39 passed, 4 deselected (issuance) |
+
+**Comparison with run 2 (v0.14.0)**
+| Test | Run 2 | Run 3 | Comment |
+|------|-------|-------|---------|
+| L3-08 RS256 with EC key | FAIL (F7) | **PASS** | Fixed, no HTTP 500 |
+| L4-03 `Link` header | FAIL (F8) | **PASS** | Fixed |
+| All other non-issuing tests | PASS | PASS | No regressions |
+
+**Not run:** the issuance tests (L1 issue, L3-02/L3-02b revoke), L1-09, L2-01 and the others listed for run 2. F9 is therefore unverified. No real cert issued; waiting for the Harica staging environment (F4).
+
 ## Findings
 | # | Finding | Cause | Action |
 |---|---------|-------|--------|
@@ -81,8 +98,8 @@ level 1 decides whether the ACME feature is usable.
 | F4 | `api_base_url = https://cm.harica.gr` on sucm-test (hardcoded in `settings.sls`, same for test and prod) | No separate Harica test environment configured | **Confirmed 2026-10-23: a real, publicly trusted certificate was issued.** Order 10020, `CN=acmetest-haak0644.it.su.se, O=Stockholms universitet`, issuer `CN=GEANT TLS ECC 1, O=Hellenic Academic and Research Institutions CA, C=GR`, valid until 2027-05-10, serial `0x0eecde42b50b39885829a5762fbf1910`. Will appear in CT logs. Revoke after testing (L3-02 can be used) and introduce a separate test CA for future runs |
 | F5 | The tester did not persist the account key (tester bug) | Random key per run | Fixed, the key is saved in the state dir |
 | F6 | **SUCM bug:** an ACME-issued cert gets no `Certificate` row, only `ActiveCertificate` (orphan). `finalize` still returns 200 and the certificate is delivered. Consequence: `revoke-cert` returns `unauthorized: No certificate issued to your account matches…` for the account's own cert (L3-02 FAIL), and renewal cannot find the existing row. | `[ACME] notify_group_id =` (empty, per `conf/sucm_conf.ini_example` "may be left empty") is read as `''` and written to the integer column `Notify_Group_Id` → MySQL 1366 *Incorrect integer value ''*. `add_update_record()` swallows the error and returns `"Failure"`, and `finalize_order()` does not check the result. Syslog 10:53:49. | (a)+(b) Code fixed in the sucm working tree (not committed/deployed): empty `notify_group_id` → `None` in `_load_acme_config()`; `submit_manual_csr()` aborts before ordering from the CA if the `Certificate` row cannot be saved. (c) Alternatively set a real `notify_group_id` in the test config. **FIXED and verified on v0.14.0 (2026-10-26):** cert 181 got its `Certificate` row and was revoked via ACME. Cert 180 (issued before the fix) still has no `Certificate` row and cannot be revoked via ACME; it must be cleaned up manually. |
-| F7 | **SUCM bug:** a signature with `alg: RS256` against an EC account returns HTTP 500 with HTML instead of problem+json (L3-08) | Probably an unhandled exception in `verify_signature()` when the algorithm does not match the key type. Robustness/DoS only, no authentication bypass: the signature is not accepted | Catch all exceptions in JWS verification and respond `malformed`/`badSignatureAlgorithm`; check that `alg` fits the JWK's `kty`/`crv` |
-| F8 | `Link: <…/directory>;rel="index"` is missing on responses (L4-03) | Not implemented | Low priority. Add in `after_request` for `/acme/*` except directory. Still failing on v0.14.0 |
+| F7 | **SUCM bug:** a signature with `alg: RS256` against an EC account returns HTTP 500 with HTML instead of problem+json (L3-08) | Probably an unhandled exception in `verify_signature()` when the algorithm does not match the key type. Robustness/DoS only, no authentication bypass: the signature is not accepted | Catch all exceptions in JWS verification and respond `malformed`/`badSignatureAlgorithm`; check that `alg` fits the JWK's `kty`/`crv`. **FIXED, verified on v0.25.0 (2026-10-27)** |
+| F8 | `Link: <…/directory>;rel="index"` is missing on responses (L4-03) | Not implemented | Low priority. Add in `after_request` for `/acme/*` except directory. **FIXED, verified on v0.25.0 (2026-10-27)** |
 | F9 | Revoking an already revoked certificate returns `unauthorized` instead of `alreadyRevoked` (RFC 8555 7.6) | Revoked certs are no longer an active, matching certificate for the account, so lookup fails before the revoked state can be recognized | Low priority. Cosmetic for clients; certbot treats both as failure |
 
 **Result codes:** PASS / FAIL / SKIP / N/A (deliberately unsupported) / BLOCKED.
