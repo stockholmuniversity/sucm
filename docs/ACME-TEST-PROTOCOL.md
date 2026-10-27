@@ -79,15 +79,21 @@ level 1 decides whether the ACME feature is usable.
 | Command | Issues cert? | Result |
 |---------|--------------|--------|
 | `pytest -m "not issuance"` | no | 39 passed, 4 deselected (issuance) |
+| `pytest tests/test_level1_happy_path.py -v` | yes (order 10031, cert_id 181) | 10 passed (incl. `TestRevoke` test_6 and test_7) |
 
 **Comparison with run 2 (v0.14.0)**
 | Test | Run 2 | Run 3 | Comment |
 |------|-------|-------|---------|
 | L3-08 RS256 with EC key | FAIL (F7) | **PASS** | Fixed, no HTTP 500 |
 | L4-03 `Link` header | FAIL (F8) | **PASS** | Fixed |
+| L1-01–L1-08 (issuance) | PASS | PASS | Order 10031 finalized with cert_id=181 (existing `Certificate` row reused for the same CN) |
+| L3-02 revoke own cert | PASS | PASS | Audit log: `account 10016 revoked certificate 181` |
+| L3-02b revoke again | FAIL (F9) | **PASS** | Fixed: `test_7` asserts the problem type `alreadyRevoked` and passes |
 | All other non-issuing tests | PASS | PASS | No regressions |
 
-**Not run:** the issuance tests (L1 issue, L3-02/L3-02b revoke), L1-09, L2-01 and the others listed for run 2. F9 is therefore unverified. No real cert issued; waiting for the Harica staging environment (F4).
+**Not run:** L1-09, L2-01 and the others listed for run 2.
+
+**Side effects:** one more real, publicly trusted cert issued and revoked (cert 181, serial `26048677086895878156064284276644153603`) at the user's request, before the Harica staging environment (F4) exists.
 
 ## Findings
 | # | Finding | Cause | Action |
@@ -100,7 +106,7 @@ level 1 decides whether the ACME feature is usable.
 | F6 | **SUCM bug:** an ACME-issued cert gets no `Certificate` row, only `ActiveCertificate` (orphan). `finalize` still returns 200 and the certificate is delivered. Consequence: `revoke-cert` returns `unauthorized: No certificate issued to your account matches…` for the account's own cert (L3-02 FAIL), and renewal cannot find the existing row. | `[ACME] notify_group_id =` (empty, per `conf/sucm_conf.ini_example` "may be left empty") is read as `''` and written to the integer column `Notify_Group_Id` → MySQL 1366 *Incorrect integer value ''*. `add_update_record()` swallows the error and returns `"Failure"`, and `finalize_order()` does not check the result. Syslog 10:53:49. | (a)+(b) Code fixed in the sucm working tree (not committed/deployed): empty `notify_group_id` → `None` in `_load_acme_config()`; `submit_manual_csr()` aborts before ordering from the CA if the `Certificate` row cannot be saved. (c) Alternatively set a real `notify_group_id` in the test config. **FIXED and verified on v0.14.0 (2026-10-26):** cert 181 got its `Certificate` row and was revoked via ACME. Cert 180 (issued before the fix) still has no `Certificate` row and cannot be revoked via ACME; it must be cleaned up manually. |
 | F7 | **SUCM bug:** a signature with `alg: RS256` against an EC account returns HTTP 500 with HTML instead of problem+json (L3-08) | Probably an unhandled exception in `verify_signature()` when the algorithm does not match the key type. Robustness/DoS only, no authentication bypass: the signature is not accepted | Catch all exceptions in JWS verification and respond `malformed`/`badSignatureAlgorithm`; check that `alg` fits the JWK's `kty`/`crv`. **FIXED, verified on v0.25.0 (2026-10-27)** |
 | F8 | `Link: <…/directory>;rel="index"` is missing on responses (L4-03) | Not implemented | Low priority. Add in `after_request` for `/acme/*` except directory. **FIXED, verified on v0.25.0 (2026-10-27)** |
-| F9 | Revoking an already revoked certificate returns `unauthorized` instead of `alreadyRevoked` (RFC 8555 7.6) | Revoked certs are no longer an active, matching certificate for the account, so lookup fails before the revoked state can be recognized | Low priority. Cosmetic for clients; certbot treats both as failure |
+| F9 | Revoking an already revoked certificate returns `unauthorized` instead of `alreadyRevoked` (RFC 8555 7.6) | Revoked certs are no longer an active, matching certificate for the account, so lookup fails before the revoked state can be recognized | Low priority. Cosmetic for clients; certbot treats both as failure. **FIXED, verified on v0.25.0 (2026-10-27)** |
 
 **Result codes:** PASS / FAIL / SKIP / N/A (deliberately unsupported) / BLOCKED.
 **Levels:** 1 = must work to obtain a certificate. 2 = renewal and basic negative cases. 3 = security/isolation. 4 = other RFC conformance.
