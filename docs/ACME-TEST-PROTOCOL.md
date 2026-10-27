@@ -194,12 +194,12 @@ Rerun on v0.14.0 2026-10-26: L1-01–08 PASS again (order 10024, cert_id 181).
 |-------|------|------|---------|---------|-----------|
 | 1 | 8 (L1-01–08) | 0 | 0 | 1 (L1-09 certbot) | ☐ (waiting for certbot) |
 | 2 | 9 (L2-02–08, 10, 11) | 0 | 0 | 2 (L2-01 renewal, L2-09) | ☐ |
-| 3 | 9 (L3-02, 05–07, 09–12) | 2 (L3-02b alreadyRevoked, L3-08 RS256) | 0 | 3 (L3-01, 03, 04) | ☐ |
-| 4 | 3 (L4-01, 02, 04) | 1 (L4-03) | 0 | 5 (L4-05–09) | ☐ |
+| 3 | 11 (L3-02, 02b, 05–12) | 0 | 0 | 3 (L3-01, 03, 04) | ☐ |
+| 4 | 4 (L4-01–04) | 0 | 0 | 5 (L4-05–09) | ☐ |
 
 **Status 2026-10-23:** the whole flow with the custom client works (directory → newAccount with EAB → newOrder → authz →
 finalize → cert), after `[ACME]` was added temporarily (F1). On v0.14.0 (2026-10-26) the F6 fix is verified: issued certs get a
-`Certificate` row and can be revoked via ACME. Open: F7 (RS256 → HTTP 500), F8 (Link header), F9 (alreadyRevoked), certbot smoke
+`Certificate` row and can be revoked via ACME. On v0.25.0 (2026-10-27, run 3) F7, F8 and F9 are fixed and all implemented tests pass. Open: certbot smoke
 test (L1-09), Harica being production (F4: two real certs issued, 180 not revoked, 181 revoked).
 
 **Recommendation (go / no-go for SUCM v0.12.0 ACME):** `________` (decided once level 1 is green)
