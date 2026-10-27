@@ -122,3 +122,11 @@ def verify_signature(alg, signing_input, signature, *, public_key=None, hmac_key
             raise JwsError(f"Unsupported JWS alg: {alg}")
     except InvalidSignature as exc:
         raise JwsError("Signature verification failed") from exc
+    except JwsError:
+        raise
+    except Exception as exc:
+        # Cryptography raises non-InvalidSignature errors when the algorithm
+        # does not match the key type (e.g. RS256 padding against an EC key),
+        # or when the key/signature shape is otherwise invalid. Surface these
+        # as a JWS error so callers return problem+json instead of a 500.
+        raise JwsError(f"Signature verification failed: {exc}") from exc

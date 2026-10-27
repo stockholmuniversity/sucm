@@ -127,6 +127,15 @@ def _add_nonce_header(response):
     # Replay-Nonce header, not just successful ones.
     if "Replay-Nonce" not in response.headers:
         response.headers["Replay-Nonce"] = SucmAcmeNonce.issue()
+    # RFC 8555 7.1: every response except the directory itself SHOULD carry
+    # a Link header pointing at the directory (rel="index"), so clients can
+    # always discover the directory URL from any ACME response.
+    if request.endpoint and request.endpoint != "acme_server.directory":
+        index_link = f'<{url_for("acme_server.directory", _external=True)}>;rel="index"'
+        if "Link" in response.headers:
+            response.headers.add("Link", index_link)
+        else:
+            response.headers["Link"] = index_link
     return response
 
 
@@ -510,6 +519,38 @@ def download_cert(order_id):
     return response
 
 
+def _cert_matches_leaf(cert_detail, leaf):
+    """
+    Heuristic: does a Certificate row plausibly describe the same identity as
+    the submitted leaf cert? Used ONLY to decide between an "alreadyRevoked"
+    and a generic "unauthorized" response after the authoritative
+    issuer+serial match against ActiveCertificate rows has failed - never to
+    select a revocation target. Matches on common name (or any dNSName SAN).
+    """
+    try:
+        leaf_cn_attrs = leaf.subject.get_attributes_for_oid(
+            x509.oid.NameOID.COMMON_NAME
+        )
+        leaf_names = {a.value for a in leaf_cn_attrs}
+        try:
+            san = leaf.extensions.get_extension_for_class(
+                x509.SubjectAlternativeName
+            ).value
+            leaf_names.update(san.get_values_for_type(x509.DNSName))
+        except x509.ExtensionNotFound:
+            pass
+    except Exception:
+        return False
+
+    row_names = {cert_detail.get("common_name") or ""}
+    subject_alt = cert_detail.get("subject_alt") or ""
+    # subject_alt is stored as a comma-separated list of DNS names
+    row_names.update(n.strip() for n in subject_alt.split(",") if n.strip())
+    row_names.discard("")
+
+    return bool(leaf_names & row_names)
+
+
 @bp.route("/revoke-cert", methods=["POST"])
 def revoke_cert():
     outer_url = url_for("acme_server.revoke_cert", _external=True)
@@ -546,6 +587,7 @@ def revoke_cert():
     sc = SucmCertificate()
     order_model = SucmAcmeOrder()
     matched = None  # (cert_detail, active_cert_dict)
+    cn_matched_but_inactive = False
 
     for order in order_model.get_orders_for_account(acct["account_id"]):
         if order["cert_id"] is None:
@@ -553,7 +595,14 @@ def revoke_cert():
         cert_detail = sc.get_certificate_detail(order["cert_id"])
         if not cert_detail or cert_detail.get("cert_type") != ACME_CERT_TYPE:
             continue
-        for active in sc.get_all_active_certs(cert_detail["cert_id"]):
+        active_certs = sc.get_all_active_certs(cert_detail["cert_id"])
+        # Remember if this order's certificate has no active rows left: a
+        # cert that was issued to this account but has since been revoked
+        # looks exactly like this. Used below to report alreadyRevoked
+        # instead of the generic unauthorized (RFC 8555 7.6).
+        if not active_certs and _cert_matches_leaf(cert_detail, leaf):
+            cn_matched_but_inactive = True
+        for active in active_certs:
             try:
                 stored_pem = sc.get_active_cert_pem(active["active_cert_id"])
                 stored_leaf = x509.load_pem_x509_certificate(
@@ -573,6 +622,11 @@ def revoke_cert():
             break
 
     if not matched:
+        if cn_matched_but_inactive:
+            return _problem(
+                "alreadyRevoked",
+                "The certificate has already been revoked",
+            )
         # Deliberately generic: do not reveal whether the cert exists but is
         # owned by another account vs. not known at all.
         return _problem(
