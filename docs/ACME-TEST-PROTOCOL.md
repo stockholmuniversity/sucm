@@ -4,7 +4,7 @@
 |-------|-------|
 | System under test | SUCM **v0.12.0** (first runs), **v0.14.0** (rerun 2026-10-26; includes the ACME revoke fix) |
 | Environment | sucm-test (`https://sucm-test.it.su.se/acme/directory`) |
-| Test tool | `sucm-acme-tester` (see `git log`) |
+| Test tool | `test/` in the sucm repo (see `test/README.md`) |
 | Run from | haak0644.it.su.se as user haak0644 |
 | Test accounts | Account Id 10015 (burned, see run log), 10016 (current). Both are throwaway and must be deactivated after testing |
 | Test domain | `acmetest-haak0644.it.su.se` |
@@ -158,10 +158,11 @@ Priority order for closing the gaps follows the audit (A1 → C1 → C2/C4/A3 �
 
 ## Running
 ```bash
-cd ~/sucm-acme-tester                       # credentials are read from ~/.config/sucm-acme-tester/tester.env
-PYTHONPATH=. python3 -m pytest -m level1 --junitxml=results-level1.xml   # level 1
-PYTHONPATH=. python3 -m pytest -m "level1 and not issuance"              # without issuing certificates
-e2e/certbot.sh                                                          # certbot smoke test (needs its own account)
+cd test                  # in the sucm repo; credentials are read from ~/.config/sucm-acme-tester/tester.env
+just setup && just init  # first time only, see test/README.md
+just test                # all tests without issuing certificates
+just issue               # level 1 including real issuance (asks first)
+just certbot             # certbot smoke test (asks first; needs its own account)
 ```
 
 ## Level 1 – Happy path (implemented)

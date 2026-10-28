@@ -1,0 +1,3 @@
+cryptography
+requests
+pytest>=7

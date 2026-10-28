@@ -1,0 +1,63 @@
+# Runner for the SUCM ACME compliance tester (black-box RFC 8555 tests against a running SUCM).
+# Run from this directory (sucm/test) on any machine that can reach the ACME server under test.
+# See README.md for first-time setup and ../docs/ACME-TEST-PROTOCOL.md for the test protocol and results.
+#
+# REQUIREMENTS
+#   Packages: just, python3 (>= 3.9, with venv), pip. certbot + openssl only for `just certbot`.
+#   Config:   ~/.config/sucm-acme-tester/tester.env (run `just init`), holding your own EAB kid/HMAC key,
+#             the directory URL and a test domain on your account's allow-list. Never commit it.
+#   Real certs: tests marked "issuance" order a REAL certificate from the CA. Only `issue`/`certbot` do that,
+#             and they ask first. Everything else is safe to run.
+
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+state_dir := env("ACME_STATE_DIR", env("HOME") + "/.config/sucm-acme-tester")
+py := ".venv/bin/python"
+
+# List recipes
+default:
+    @just --list
+
+# Create the venv and install dependencies (safe to rerun)
+setup:
+    [ -d .venv ] || python3 -m venv .venv
+    {{py}} -m pip install -q -r requirements.txt
+
+# Create the state dir and a tester.env template (fill it in afterwards)
+init:
+    mkdir -p -m 700 "{{state_dir}}"
+    [ -e "{{state_dir}}/tester.env" ] || { cp tester.env.example "{{state_dir}}/tester.env"; chmod 600 "{{state_dir}}/tester.env"; echo "created {{state_dir}}/tester.env - edit it"; }
+
+# Check config and that the ACME server is reachable
+doctor: _venv
+    {{py}} -m acme_tester.doctor
+
+# All tests that do not issue a certificate (safe, default choice)
+test *args: _venv
+    {{py}} -m pytest -m "not issuance" {{args}}
+
+# One level (1-4) without issuance, e.g. `just level 3`
+level n *args: _venv
+    {{py}} -m pytest -m "level{{n}} and not issuance" {{args}}
+
+# Any pytest marker expression, e.g. `just run "level3 or level4"`
+run marker *args: _venv
+    {{py}} -m pytest -m "{{marker}}" {{args}}
+
+# Tests selected by name, e.g. `just k revoke`
+k expr *args: _venv
+    {{py}} -m pytest -k "{{expr}}" {{args}}
+
+# Level 1 INCLUDING real issuance (uses CA quota, creates a publicly trusted certificate)
+issue: _venv
+    @read -r -p "This orders a REAL certificate from the CA. Continue? [y/N] " a; [ "$a" = y ] || { echo "Aborted by user."; exit 0; }
+    {{py}} -m pytest -m level1
+
+# Same flow with real certbot (REAL certificate)
+certbot:
+    @read -r -p "This orders a REAL certificate from the CA. Continue? [y/N] " a; [ "$a" = y ] || { echo "Aborted by user."; exit 0; }
+    e2e/certbot.sh
+
+[private]
+_venv:
+    @[ -x {{py}} ] && {{py}} -c "import pytest, requests, cryptography" 2>/dev/null || just setup
