@@ -110,6 +110,7 @@ log name=job build="lastBuild":
 
 # Ask for confirmation (skipped with YES=1)
 [private]
+[no-exit-message]
 _confirm msg:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -118,7 +119,7 @@ _confirm msg:
     if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then c=$'\033[1;33m'; r=$'\033[0m'; else c=; r=; fi
     printf '%s%b%s\n' "$c" "{{msg}}" "$r"
     read -r -p "${c}Continue?${r} [y/N] " a
-    [ "$a" = y ] || [ "$a" = Y ] || { echo "aborted"; exit 1; }
+    [ "$a" = y ] || [ "$a" = Y ] || { echo "Aborted by user, nothing was changed by this step."; exit 1; }
 
 # Print an uppercase step label (the numbering matches the `release` chain)
 [private]
@@ -213,6 +214,7 @@ wait-build name key value timeout="1200":
     sys.exit("timeout waiting for {{name}} {{key}}={{value}}")
 
 # Step 1-7: bump version, commit, tag, push master+tag together, wait for the tag build
+[no-exit-message]
 release-test new:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -251,6 +253,7 @@ release-test new:
     echo "sucm $v built. Next: just update-cert-app $v"
 
 # Step 8-9: pin the new sucm version in sua-cert-app, push, wait for its build
+[no-exit-message]
 update-cert-app new:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -286,10 +289,12 @@ _salt-apply host:
     echo "$out" | grep -qE '^Failed: +0$' || { echo "salt reported failures"; exit 1; }
 
 # Step 10: apply salt on sucm-test and restart apache
+[no-exit-message]
 deploy-test: (salt-dry test_host) _deploy-test
 
 # Salt apply + apache restart without the dry-run (used by `release`, which has already confirmed)
 [private]
+[no-exit-message]
 _deploy-test:
     @just _confirm "Apply salt and restart apache2 on {{test_host}}?"
     @just _step 9 "SALT APPLY ON TEST"
@@ -303,6 +308,7 @@ _upgrade-app host:
     ssh {{host}} 'sudo apt-get update -qq && sudo apt-get install -y --only-upgrade sua-cert-app && sudo systemctl restart apache2.service && systemctl is-active apache2.service'
 
 # Quick deploy of the newest sua-cert-app build to test (for config changes in salt use deploy-test)
+[no-exit-message]
 upgrade-test:
     just _confirm "Upgrade sua-cert-app and restart apache2 on {{test_host}}?"
     just _upgrade-app {{test_host}}
@@ -325,6 +331,7 @@ promote-prod:
     echo "choose the codename(s) to promote from test to prod. Watch with: just status {{cert_app}}"
 
 # Deploy to prod with salt (needs SUCM_PROD_HOST), then restart apache
+[no-exit-message]
 deploy-prod:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -338,6 +345,7 @@ deploy-prod:
 # If it stops half-way (a Jenkins build fails or times out), fix the cause and continue manually with
 # the remaining steps (update-cert-app, deploy-test, sanity). One confirmation up front, stops at the first failure.
 # Full test release: preflight, release-test, update-cert-app, salt apply + apache restart on test, sanity
+[no-exit-message]
 release new:
     #!/usr/bin/env bash
     set -euo pipefail
