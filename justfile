@@ -120,7 +120,11 @@ _confirm msg:
 # Print an uppercase step label (the numbering matches the `release` chain)
 [private]
 _step n text:
-    @echo "=== STEP {{n}}/12: {{text}} ==="
+    #!/usr/bin/env bash
+    # Bold cyan label plus an overall progress bar (position in the 12-step chain); no colour if NO_COLOR is set or output is not a terminal
+    n={{n}}; w=24; f=$(( n * w / 12 )); bar=$(printf '%*s' "$f" '' | tr ' ' '#')$(printf '%*s' "$((w - f))" '' | tr ' ' '-')
+    if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then c=$'\033[1;36m'; r=$'\033[0m'; else c=; r=; fi
+    printf '%s=== STEP %s/12: %s === [%s] %s%%%s\n' "$c" "$n" "{{text}}" "$bar" "$(( n * 100 / 12 ))" "$r"
 
 # Verify everything the release needs BEFORE anything is changed or pushed (both repos)
 [private]
@@ -160,11 +164,13 @@ wait-build name key value timeout="1200":
         if "=" in line and not line.startswith("#"):
             k, v = line.strip().split("=", 1)
             env[k] = v
-    tree = "builds[number,result,building,actions[parameters[name,value]]]{0,15}"
+    tree = "builds[number,result,building,timestamp,estimatedDuration,actions[parameters[name,value]]]{0,15}"
     url = env["JENKINS_URL"].rstrip("/") + "/job/{{name}}/api/json?tree=" + urllib.parse.quote(tree, safe=",")
     auth = base64.b64encode((env["JENKINS_USER_ID"] + ":" + env["JENKINS_API_TOKEN"]).encode()).decode()
     deadline = time.time() + int("{{timeout}}")
     seen = None
+    tty = sys.stdout.isatty()
+    drew = False
     while time.time() < deadline:
         req = urllib.request.Request(url, headers={"Authorization": "Basic " + auth})
         builds = json.load(urllib.request.urlopen(req, timeout=30))["builds"]
@@ -174,9 +180,23 @@ wait-build name key value timeout="1200":
         if match:
             b = max(match, key=lambda x: x["number"])
             if seen != (b["number"], b["building"]):
+                if tty and seen is not None and seen != ():
+                    print()
                 print("{{name}} #%d %s" % (b["number"], "running" if b["building"] else b["result"]), flush=True)
                 seen = (b["number"], b["building"])
+            if b["building"]:
+                # progress from Jenkins' own estimate of the build duration; plain dots when not on a terminal
+                if tty:
+                    est = max(b.get("estimatedDuration") or 0, 1)
+                    frac = min((time.time() * 1000 - b["timestamp"]) / est, 0.99)
+                    n = int(frac * 30)
+                    print("\r  [%s%s] %3d%%" % ("#" * n, "-" * (30 - n), frac * 100), end="", flush=True)
+                else:
+                    print(".", end="", flush=True)
+                drew = True
             if not b["building"]:
+                if drew and not tty:
+                    print(flush=True)
                 sys.exit(0 if b["result"] == "SUCCESS" else "build %s #%d finished with %s" % ("{{name}}", b["number"], b["result"]))
         elif seen is None:
             print("waiting for {{name}} build with {{key}}={{value}} to appear...", flush=True)
