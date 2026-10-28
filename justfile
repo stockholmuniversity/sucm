@@ -136,7 +136,14 @@ _preflight new:
       git -C "$d" fetch -q origin --tags || fail "$n: git fetch failed"
       [ "$(git -C "$d" branch --show-current)" = master ] || fail "$n: not on master"
       [ -z "$(git -C "$d" status --porcelain)" ] || { git -C "$d" status --short; fail "$n: working tree not clean"; }
-      [ "$(git -C "$d" rev-parse HEAD)" = "$(git -C "$d" rev-parse origin/master)" ] || fail "$n: master is not in sync with origin/master (pull or push first)"
+      if [ "$(git -C "$d" rev-parse HEAD)" != "$(git -C "$d" rev-parse origin/master)" ]; then
+        # sua-cert-app is also pushed to by others/Jenkins: a plain fast-forward is safe. sucm must be synced by hand (this justfile lives there).
+        if [ "$d" = "{{cert_app_dir}}" ] && git -C "$d" merge-base --is-ancestor HEAD origin/master; then
+          git -C "$d" merge -q --ff-only origin/master && echo "$n: fast-forwarded to origin/master"
+        else
+          fail "$n: master is not in sync with origin/master (pull or push first)"
+        fi
+      fi
     done
     git rev-parse -q --verify "refs/tags/$v" >/dev/null && fail "tag $v already exists" || true
     grep -qE '^version = "[^"]+"' pyproject.toml || fail "no version line in pyproject.toml"
