@@ -31,6 +31,9 @@ class Config:
     test_domain: str
     verify: object  # True / False / CA bundle path
     account_key_file: str
+    eab_kid2: str = ""
+    eab_hmac_key2: str = ""
+    account_key_file2: str = ""
 
     @classmethod
     def from_env(cls):
@@ -49,5 +52,10 @@ class Config:
             verify=verify,
             account_key_file=os.environ.get(
                 "ACME_ACCOUNT_KEY", os.path.join(STATE_DIR, "account_key.pem")
+            ),
+            eab_kid2=os.environ.get("ACME_EAB_KID_2", ""),
+            eab_hmac_key2=os.environ.get("ACME_EAB_HMAC_KEY_2", ""),
+            account_key_file2=os.environ.get(
+                "ACME_ACCOUNT_KEY_2", os.path.join(STATE_DIR, "account_key_2.pem")
             ),
         )

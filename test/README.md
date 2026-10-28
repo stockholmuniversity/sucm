@@ -46,6 +46,10 @@ an admin activate it and put your test domain on its allow-list (`/acme-accounts
 an account: the server binds an EAB kid to the first account key, which is kept in `account_key.pem` next to
 `tester.env`. Do not delete that file; reruns need it.
 
+A **second account** is optional but needed for the cross-account isolation tests (L3-01): request another account,
+have it activated, and set `ACME_EAB_KID_2` / `ACME_EAB_HMAC_KEY_2` in `tester.env` (its key goes in `account_key_2.pem`).
+Without it those tests are skipped.
+
 State (credentials, keys, certbot's config) lives outside the repo in `~/.config/sucm-acme-tester/`
 (override with `ACME_STATE_DIR`). Environment variables override `tester.env`. Nothing secret is ever committed.
 

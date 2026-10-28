@@ -198,7 +198,7 @@ Rerun on v0.14.0 2026-10-26: L1-01–08 PASS again (order 10024, cert_id 181).
 ## Level 3 – Security and isolation (partially implemented)
 | ID | Test case | RFC | Expected | Result | Notes |
 |----|-----------|-----|----------|--------|-------|
-| L3-01 | Account B fetches account A's order/authz/cert | 10.x | denied/404 | ☐ | Needs a second account |
+| L3-01 | Account B fetches account A's order/authz, or finalizes it (cert download: not yet) | 10.x | denied/404 | ☐ implemented (3 tests, skipped without account 2), not yet run | Needs a second account (`ACME_EAB_KID_2`) |
 | L3-02 | Revoke own cert | 7.6 | 200 | **PASS** (v0.14.0) | `TestRevoke::test_6`. Earlier FAIL on v0.12.0 (F6). Cert 181 revoked 2026-10-26 15:22. Cert 180 (order 10020, pre-fix) is still not revoked |
 | L3-02b | Revoke the same cert again | 7.6 | `alreadyRevoked` | **FAIL** | `TestRevoke::test_7`: returns `unauthorized` (F9) |
 | L3-03 | Revoke another account's cert | 7.6 | `unauthorized` | ☐ | |

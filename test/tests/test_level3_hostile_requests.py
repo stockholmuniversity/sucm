@@ -107,3 +107,33 @@ def test_l3_12_eab_already_bound_to_other_key(need_eab, cfg, client):
         client.new_account(cfg.eab_kid, cfg.eab_hmac_key)  # fresh random key
     assert exc.value.status in (400, 403)
     assert "unauthorized" in exc.value.type or "malformed" in exc.value.type
+
+
+# --- L3-01: cross-account isolation (needs a second account, see tester.env.example) ---
+
+
+@pytest.fixture
+def foreign_order(acct, cfg):
+    """An order owned by account A (never finalized, nothing is issued)."""
+    url, order = acct.new_order([cfg.test_domain])
+    return url, order
+
+
+def test_l3_01a_other_account_cannot_read_order(acct2, foreign_order):
+    url, _ = foreign_order
+    assert_problem(acct2.post_raw(url, acct2.sign(url, None)), "unauthorized", "malformed")
+
+
+def test_l3_01b_other_account_cannot_read_authz(acct2, foreign_order):
+    _, order = foreign_order
+    url = order["authorizations"][0]
+    assert_problem(acct2.post_raw(url, acct2.sign(url, None)), "unauthorized", "malformed")
+
+
+def test_l3_01c_other_account_cannot_finalize(acct2, foreign_order, cfg):
+    from acme_tester.client import b64, make_csr
+
+    _, order = foreign_order
+    url = order["finalize"]
+    body = acct2.sign(url, {"csr": b64(make_csr([cfg.test_domain])[0])})
+    assert_problem(acct2.post_raw(url, body), "unauthorized", "malformed")

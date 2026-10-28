@@ -32,6 +32,16 @@ def acct(need_eab, cfg):
     return c
 
 
+@pytest.fixture
+def acct2(cfg):
+    """Client for a second, independent account (isolation tests); skipped if not configured."""
+    if not (cfg.eab_kid2 and cfg.eab_hmac_key2):
+        pytest.skip("ACME_EAB_KID_2 / ACME_EAB_HMAC_KEY_2 not set (second account needed)")
+    c = AcmeClient(cfg.directory_url, verify=cfg.verify, key_file=cfg.account_key_file2)
+    c.new_account(cfg.eab_kid2, cfg.eab_hmac_key2)
+    return c
+
+
 def assert_problem(resp, *types, status=None):
     """Assert an ACME problem document; `types` are short names like 'badNonce'."""
     assert 400 <= resp.status_code < 500, f"{resp.status_code}: {resp.text[:300]}"
