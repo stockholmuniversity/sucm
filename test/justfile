@@ -20,7 +20,7 @@ default:
 
 # Create the venv and install dependencies (safe to rerun)
 setup:
-    [ -d .venv ] || python3 -m venv .venv
+    [ -x {{py}} ] || { rm -rf .venv; python3 -m venv .venv || { rm -rf .venv; echo "venv failed - on Debian: sudo apt install python3-venv"; exit 1; }; }
     {{py}} -m pip install -q -r requirements.txt
 
 # Create the state dir and a tester.env template (fill it in afterwards)
