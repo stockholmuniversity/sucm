@@ -108,6 +108,41 @@ level 1 decides whether the ACME feature is usable.
 | F8 | `Link: <…/directory>;rel="index"` is missing on responses (L4-03) | Not implemented | Low priority. Add in `after_request` for `/acme/*` except directory. **FIXED, verified on v0.25.0 (2026-10-27)** |
 | F9 | Revoking an already revoked certificate returns `unauthorized` instead of `alreadyRevoked` (RFC 8555 7.6) | Revoked certs are no longer an active, matching certificate for the account, so lookup fails before the revoked state can be recognized | Low priority. Cosmetic for clients; certbot treats both as failure. **FIXED, verified on v0.25.0 (2026-10-27)** |
 
+### Findings from the blind-spot audit (`ACME-TEST-PROTOCOL-AUDIT.md`)
+
+The audit (code review against v0.14.0) was verified on 2026-10-28 against **sucm-test v0.28.2**: by reading the code and, where
+safe, with live non-issuing probes from the shell host (no certificate was issued; the probes left a few unused `ready` orders
+on the test account). Status: **CONFIRMED** (reproduced live), **CONFIRMED (code)** (seen in the code, not exercised live),
+**PASS** (audit gap closed, server behaves correctly), **OUTDATED**, **UNVERIFIED** (needs more setup).
+
+| # | Audit ref | Finding | Evidence (v0.28.2) | Status / action |
+|---|-----------|---------|--------------------|-----------------|
+| F10 | A2 | `account_orders` returns `{"orders": []}` even for an account with orders | Live: account with orders 10029–10031 gets `{"orders":[]}` | **CONFIRMED.** Implement (RFC 8555 7.1.2.1) or record L4-08 as known-unimplemented |
+| F11 | §5 | `expires` is local time labelled `Z` | Live: order created 10:28:34 UTC returned `"expires":"2026-11-04T11:28:34Z"`; server zone is Europe/Stockholm (+1) | **CONFIRMED.** Use UTC-aware timestamps; add RFC 3339/UTC test (L4-10) |
+| F12 | C1 | Order/authz expiry is stored but never enforced | Code: `expires` is only written and emitted, never compared with now; `finalize_order()` checks `status` only | **CONFIRMED (code).** Enforce expiry (RFC 8555 7.1.3/7.1.4) + test (needs time control or a DB-edited `Expires`) |
+| F13 | A4 | `newAccount` for an already-registered key returns 201 | Live: re-registering the same key + EAB returned 201 (RFC 8555 7.3.1: 200) | **CONFIRMED.** Low priority; harmless for certbot |
+| F14 | D2 | GET on POST-only endpoints returns Flask's HTML 405 | Live: GET `/acme/new-order`, `/new-account`, `/revoke-cert` → 405 `text/html` | **CONFIRMED.** Add problem+json `malformed`/405 handler for `/acme/*` |
+| F15 | D3 | POST-as-GET with a non-empty payload is accepted | Live: order URL with payload `{"x":1}` → 200 | **CONFIRMED.** Reject non-empty payload (RFC 8555 6.3) |
+| F16 | D1 | No cap on identifiers per order | Live: an order with 100 identifiers → 201 (100 authz rows). Nonce growth per response: code only | **CONFIRMED.** Record a decision / add a cap (and a rate limit on `new-nonce`) |
+| F17 | C4 | Duplicate identifiers in one order create duplicate authorizations | Live: 2× same name → 201 with 2 authz URLs | **CONFIRMED.** Deduplicate or reject |
+| F18 | New (found while verifying D4/C5) | Malformed payload shapes give HTTP 500 HTML: `csr` that is not valid base64url; `identifiers` not a list (`"abc"`); identifier `value` not a string (`5`) | Live: all three → 500 `text/html` (same class as F7: robustness, not an auth bypass) | **NEW, CONFIRMED.** Validate input types, return `malformed` |
+
+Audit items that turned out fine or are outdated:
+
+| Audit ref | Result |
+|-----------|--------|
+| B1 (no EAB), B2 (EAB `url` mismatch), B3 (non-HS256 EAB alg), B4 (valid kid/url/alg, wrong HMAC) | **PASS** live: `externalAccountRequired` / `unauthorized` problem+json, no 5xx. Not yet automated (L2-12…15) |
+| C2 (`orderNotReady`) | **PASS** live: re-finalizing a valid order → 403 `orderNotReady`. L2-09 is easy to automate (no issuance needed) |
+| C4 (invalid CSR names) / C5 | Uppercase identifier accepted (finalize compares lowercased, OK); trailing-dot FQDN and subdomain of an allowed domain → 403 `rejectedIdentifier` (correct) |
+| D4 | **PASS** live: undecodable DER → `malformed` 400; CSR with a broken self-signature → `malformed` 400. (The invalid-base64 variant is F18) |
+| D5 / F7 | **OUTDATED:** F7 fixed and verified on v0.25.0 (L3-08 PASS). Still worth a pinned regression test |
+| G3 | **PARTLY OUTDATED:** F9 `test_7` was rerun in run 3 and passes. The `_cert_matches_leaf()` CN/SAN heuristic is **CONFIRMED (code)**; edge cases still untested |
+| A3 (disabled/pending account lockout) | **UNVERIFIED:** code paths exist (`status != "active"` rejected on kid requests, `new_account`); needs an admin to deactivate a test account |
+| A1 (cross-account isolation; L3-01/03/04) | **UNVERIFIED, highest priority:** needs a second account/EAB credential. Only gap that could hide a cert-theft bug |
+| B5, C3 (partial-failure), C6 (non-ACME CN collision 409), §6 (chain/key/validity checks), G1 (audit log), G2 (renewal semantics, L2-01) | **UNVERIFIED:** need issuance, fault injection or log access; C6 and §6 are straightforward once a cert is issued |
+
+Priority order for closing the gaps follows the audit (A1 → C1 → C2/C4/A3 → B1–B4 → F11 → D1 → rest), with F18 added at the level of F7.
+
 **Result codes:** PASS / FAIL / SKIP / N/A (deliberately unsupported) / BLOCKED.
 **Levels:** 1 = must work to obtain a certificate. 2 = renewal and basic negative cases. 3 = security/isolation. 4 = other RFC conformance.
 
@@ -203,6 +238,23 @@ finalize → cert), after `[ACME]` was added temporarily (F1). On v0.14.0 (2026-
 test (L1-09), Harica being production (F4: two real certs issued, 180 not revoked, 181 revoked).
 
 **Recommendation (go / no-go for SUCM v0.12.0 ACME):** `________` (decided once level 1 is green)
+
+## Planned: tests from the audit (not yet automated)
+
+| ID | Test | Audit/finding | Needs |
+|----|------|---------------|-------|
+| L2-09 | Re-finalize a valid order → `orderNotReady` | C2 (verified live manually) | 1 prior issued order |
+| L2-12…15 | EAB negatives: missing, wrong `url`, non-HS256, wrong HMAC | B1–B4 (verified live manually) | nothing |
+| L3-01/03/04 | Cross-account order/authz/cert/revoke isolation | A1 | second account |
+| L3-13 | Disabled account cannot sign requests | A3 | admin deactivation |
+| L4-10 | `expires` is RFC 3339 and within ±1 min of UTC now + 7 d | F11 | nothing |
+| L4-11 | Non-POST on `/acme/*` returns problem+json | F14 | nothing |
+| L4-12 | Non-empty POST-as-GET payload rejected | F15 | nothing |
+| L4-13 | Malformed payload shapes never give 5xx | F18, D4 | nothing |
+| L2-16 | Duplicate identifiers / identifier cap | F16, F17 | decision |
+| L1-10 | Chain order, signature to root, key match, validity | §6 | issuance |
+
+Tests for confirmed findings (F10–F18) should be added as expected-fail/xfail until fixed.
 
 ## Planned: real ACME clients (Level 5)
 
