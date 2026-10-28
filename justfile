@@ -125,10 +125,9 @@ _confirm msg:
 [private]
 _step n text:
     #!/usr/bin/env bash
-    # Bold cyan label plus an overall progress bar (0% at step 1, 100% at step 12); no colour if NO_COLOR is set or output is not a terminal
-    n={{n}}; w=24; p=$(( (n - 1) * 100 / 11 )); f=$(( p * w / 100 )); bar=$(printf '%*s' "$f" '' | tr ' ' '#')$(printf '%*s' "$((w - f))" '' | tr ' ' '-')
+    # Bold cyan label; no colour if NO_COLOR is set or output is not a terminal
     if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then c=$'\033[1;36m'; r=$'\033[0m'; else c=; r=; fi
-    printf '%s=== STEP %s/12: %s === [%s] %s%%%s\n' "$c" "$n" "{{text}}" "$bar" "$p" "$r"
+    printf '%s=== STEP %s/12: %s ===%s\n' "$c" "{{n}}" "{{text}}" "$r"
 
 # Verify everything the release needs BEFORE anything is changed or pushed (both repos)
 [private]
