@@ -1,3 +1,9 @@
-cryptography
-requests
+# Python dependencies for the ACME tester (installed by `just setup` into test/.venv).
+#
+# System prerequisites (not installable with pip):
+#   Debian/Ubuntu: sudo apt install just python3 python3-venv python3-pip git curl
+#   macOS:         brew install just python
+#   Only for `just certbot`: certbot and openssl
+cryptography>=41
+requests>=2.28
 pytest>=7
