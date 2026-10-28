@@ -18,6 +18,9 @@
 #   SSH: key-based login from this machine to the test server (sucm-test.it.su.se) with passwordless sudo
 #     (needed for salt-call and apache). Prod: set SUCM_PROD_HOST=<fqdn of the prod cert-app server>.
 #
+# Over ssh the recipes only touch the test/prod server: salt-call state.apply (plus test=True dry-run), apache2
+# restart, apt --only-upgrade sua-cert-app (upgrade-test only), and read-only checks (sudo -n true, pip list, is-active).
+#
 # Mutating recipes (release*, update-cert-app, deploy-*) ask for confirmation; set YES=1 to skip the prompt.
 # Nothing here starts a build directly: builds are triggered by the GitHub webhooks when you push, as before.
 # Prod promotion is an interactive Jenkins step.
@@ -114,6 +117,32 @@ _confirm msg:
     read -r -p "{{msg}} [y/N] " a
     [ "$a" = y ] || [ "$a" = Y ] || { echo "aborted"; exit 1; }
 
+# Print an uppercase step label (the numbering matches the `release` chain)
+[private]
+_step n text:
+    @echo "=== STEP {{n}}/12: {{text}} ==="
+
+# Verify everything the release needs BEFORE anything is changed or pushed (both repos)
+[private]
+_preflight new:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    v="{{new}}"
+    fail() { echo "PREFLIGHT FAILED: $*"; exit 1; }
+    [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "version must look like 0.15.0"
+    for d in "{{justfile_directory()}}" "{{cert_app_dir}}"; do
+      [ -d "$d/.git" ] || fail "$d is not a git repo (clone it or set CERT_APP_DIR)"
+      n=$(basename "$d")
+      git -C "$d" fetch -q origin --tags || fail "$n: git fetch failed"
+      [ "$(git -C "$d" branch --show-current)" = master ] || fail "$n: not on master"
+      [ -z "$(git -C "$d" status --porcelain)" ] || { git -C "$d" status --short; fail "$n: working tree not clean"; }
+      [ "$(git -C "$d" rev-parse HEAD)" = "$(git -C "$d" rev-parse origin/master)" ] || fail "$n: master is not in sync with origin/master (pull or push first)"
+    done
+    git rev-parse -q --verify "refs/tags/$v" >/dev/null && fail "tag $v already exists" || true
+    grep -qE '^version = "[^"]+"' pyproject.toml || fail "no version line in pyproject.toml"
+    grep -qE '^sucm==' "{{cert_app_dir}}/requirements.txt" || fail "no sucm== line in sua-cert-app/requirements.txt"
+    echo "preflight ok: both repos on master, clean, in sync; tag $v is free"
+
 # Poll Jenkins until a build of <name> with parameter <key>=<value> exists and finishes; fail unless SUCCESS
 [private]
 wait-build name key value timeout="1200":
@@ -162,6 +191,7 @@ release-test new:
     old=$(sed -n -E 's/^version = "([^"]+)"/\1/p' pyproject.toml | head -1)
     echo "current: $old"
     just _confirm "Bump to $v, push master, tag $v and push the tag?"
+    just _step 2 "BUMP VERSION AND COMMIT"
     python3 - "$v" <<'PY'
     import re, sys
     p = "pyproject.toml"
@@ -172,8 +202,11 @@ release-test new:
     PY
     git add pyproject.toml
     git commit -m "Bump version $old -> $v"
+    just _step 3 "TAG RELEASE $v"
     git tag -a "$v" -m "Release $v"
+    just _step 4 "PUSH SUCM MASTER AND TAG"
     git push origin master "refs/tags/$v"
+    just _step 5 "WAIT FOR SUCM TAG BUILD"
     # Only the tag build produces the release; the master build still runs via webhook but is not awaited
     just wait-build {{job}} branch "$v" || {
       echo "Tag build for $v failed. If the tag must be reused, remove it:"
@@ -194,10 +227,13 @@ update-cert-app new:
     old=$(sed -n -E 's/^sucm==(.*)/\1/p' requirements.txt | head -1)
     echo "current: sucm==$old"
     just --justfile "{{justfile()}}" _confirm "Set sucm==$v in sua-cert-app/requirements.txt, commit and push?"
+    just --justfile "{{justfile()}}" _step 6 "UPDATE SUA-CERT-APP REQUIREMENTS"
     sed -i.bak -E "s/^sucm==.*/sucm==$v/" requirements.txt && rm requirements.txt.bak
     git add requirements.txt
     git commit -m "Update sucm $old -> $v"
+    just --justfile "{{justfile()}}" _step 7 "PUSH SUA-CERT-APP"
     git push origin master
+    just --justfile "{{justfile()}}" _step 8 "WAIT FOR SUA-CERT-APP BUILD"
     just --justfile "{{justfile()}}" wait-build {{cert_app}} rev "$(git rev-parse HEAD)"
     echo "sua-cert-app built. Next: just deploy-test"
 
@@ -217,14 +253,16 @@ _salt-apply host:
 # Step 10: apply salt on sucm-test and restart apache
 deploy-test: (salt-dry test_host) _deploy-test
 
-# Apply + restart without the dry-run (used by `release`, which has already confirmed)
+# Salt apply + apache restart without the dry-run (used by `release`, which has already confirmed)
 [private]
 _deploy-test:
     just _confirm "Apply salt and restart apache2 on {{test_host}}?"
+    just _step 9 "SALT APPLY ON TEST"
     just _salt-apply {{test_host}}
+    just _step 10 "RESTART APACHE ON TEST"
     ssh {{test_host}} 'sudo systemctl restart apache2.service && systemctl is-active apache2.service'
 
-# Fast path: upgrade only the sua-cert-app package on a host and restart apache (no salt, no other package upgrades)
+# Opt-in fast path: upgrade only the sua-cert-app package and restart apache (no salt, no other package upgrades; not used by `release`)
 [private]
 _upgrade-app host:
     ssh {{host}} 'sudo apt-get update -qq && sudo apt-get install -y --only-upgrade sua-cert-app && sudo systemctl restart apache2.service && systemctl is-active apache2.service'
@@ -238,6 +276,7 @@ upgrade-test:
 sanity host=test_host:
     #!/usr/bin/env bash
     set -euo pipefail
+    just _step 11 "SANITY CHECK"
     echo "installed: $(ssh {{host}} 'sudo /local/cert-app/bin/pip list 2>/dev/null | grep -i "^sucm "')"
     echo "apache2  : $(ssh {{host}} 'systemctl is-active apache2.service')"
 
@@ -263,18 +302,20 @@ deploy-prod:
 
 # If it stops half-way (a Jenkins build fails or times out), fix the cause and continue manually with
 # the remaining steps (update-cert-app, deploy-test, sanity). One confirmation up front, stops at the first failure.
-# Full test release: check, release-test, update-cert-app, package upgrade on test, sanity
+# Full test release: preflight, release-test, update-cert-app, salt apply + apache restart on test, sanity
 release new:
     #!/usr/bin/env bash
     set -euo pipefail
     v="{{new}}"
-    [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "version must look like 0.15.0"; exit 1; }
+    just _step 1 "PREFLIGHT CHECKS"
     just check
+    just _preflight "$v"
     just version
-    just _confirm "Release sucm $v to TEST (bump, tag, build, sua-cert-app, package upgrade, apache restart)? Prod is not touched."
+    just _confirm "Release sucm $v to TEST (bump, tag, build, sua-cert-app, salt apply, apache restart)? Prod is not touched."
     export YES=1
     just release-test "$v"
     just update-cert-app "$v"
-    just _upgrade-app {{test_host}}
+    just _deploy-test
     just sanity
-    echo "Release $v is on test. Prod: just promote-prod, then just deploy-prod."
+    just _step 12 "DONE: RELEASE $v IS ON TEST"
+    echo "Prod: just promote-prod, then just deploy-prod."
