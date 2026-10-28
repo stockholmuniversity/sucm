@@ -121,10 +121,10 @@ _confirm msg:
 [private]
 _step n text:
     #!/usr/bin/env bash
-    # Bold cyan label plus an overall progress bar (position in the 12-step chain); no colour if NO_COLOR is set or output is not a terminal
-    n={{n}}; w=24; f=$(( n * w / 12 )); bar=$(printf '%*s' "$f" '' | tr ' ' '#')$(printf '%*s' "$((w - f))" '' | tr ' ' '-')
+    # Bold cyan label plus an overall progress bar (0% at step 1, 100% at step 12); no colour if NO_COLOR is set or output is not a terminal
+    n={{n}}; w=24; p=$(( (n - 1) * 100 / 11 )); f=$(( p * w / 100 )); bar=$(printf '%*s' "$f" '' | tr ' ' '#')$(printf '%*s' "$((w - f))" '' | tr ' ' '-')
     if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then c=$'\033[1;36m'; r=$'\033[0m'; else c=; r=; fi
-    printf '%s=== STEP %s/12: %s === [%s] %s%%%s\n' "$c" "$n" "{{text}}" "$bar" "$(( n * 100 / 12 ))" "$r"
+    printf '%s=== STEP %s/12: %s === [%s] %s%%%s\n' "$c" "$n" "{{text}}" "$bar" "$p" "$r"
 
 # Verify everything the release needs BEFORE anything is changed or pushed (both repos)
 [private]
@@ -180,8 +180,11 @@ wait-build name key value timeout="1200":
         if match:
             b = max(match, key=lambda x: x["number"])
             if seen != (b["number"], b["building"]):
-                if tty and seen is not None and seen != ():
+                if tty and drew:
+                    if not b["building"] and b["result"] == "SUCCESS":
+                        print("\r  [%s] 100%%" % ("#" * 30), end="")
                     print()
+                    drew = False
                 print("{{name}} #%d %s" % (b["number"], "running" if b["building"] else b["result"]), flush=True)
                 seen = (b["number"], b["building"])
             if b["building"]:
@@ -191,12 +194,14 @@ wait-build name key value timeout="1200":
                     frac = min((time.time() * 1000 - b["timestamp"]) / est, 0.99)
                     n = int(frac * 30)
                     print("\r  [%s%s] %3d%%" % ("#" * n, "-" * (30 - n), frac * 100), end="", flush=True)
+                    drew = True
                 else:
                     print(".", end="", flush=True)
-                drew = True
+                    drew = True
             if not b["building"]:
                 if drew and not tty:
                     print(flush=True)
+                    drew = False
                 sys.exit(0 if b["result"] == "SUCCESS" else "build %s #%d finished with %s" % ("{{name}}", b["number"], b["result"]))
         elif seen is None:
             print("waiting for {{name}} build with {{key}}={{value}} to appear...", flush=True)
@@ -283,11 +288,11 @@ deploy-test: (salt-dry test_host) _deploy-test
 # Salt apply + apache restart without the dry-run (used by `release`, which has already confirmed)
 [private]
 _deploy-test:
-    just _confirm "Apply salt and restart apache2 on {{test_host}}?"
-    just _step 9 "SALT APPLY ON TEST"
-    just _salt-apply {{test_host}}
-    just _step 10 "RESTART APACHE ON TEST"
-    ssh {{test_host}} 'sudo systemctl restart apache2.service && systemctl is-active apache2.service'
+    @just _confirm "Apply salt and restart apache2 on {{test_host}}?"
+    @just _step 9 "SALT APPLY ON TEST"
+    @just _salt-apply {{test_host}}
+    @just _step 10 "RESTART APACHE ON TEST"
+    @ssh {{test_host}} 'sudo systemctl restart apache2.service && systemctl is-active apache2.service'
 
 # Opt-in fast path: upgrade only the sua-cert-app package and restart apache (no salt, no other package upgrades; not used by `release`)
 [private]
