@@ -114,7 +114,10 @@ _confirm msg:
     #!/usr/bin/env bash
     set -euo pipefail
     [ "${YES:-}" = 1 ] && exit 0
-    read -r -p "{{msg}} [y/N] " a
+    # question in bold yellow; "\n" in the message starts a new line so long questions stay left-aligned
+    if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then c=$'\033[1;33m'; r=$'\033[0m'; else c=; r=; fi
+    printf '%s%b%s\n' "$c" "{{msg}}" "$r"
+    read -r -p "${c}Continue?${r} [y/N] " a
     [ "$a" = y ] || [ "$a" = Y ] || { echo "aborted"; exit 1; }
 
 # Print an uppercase step label (the numbering matches the `release` chain)
@@ -343,7 +346,7 @@ release new:
     just check
     just _preflight "$v"
     just version
-    just _confirm "Release sucm $v to TEST (bump, tag, build, sua-cert-app, salt apply, apache restart)? Prod is not touched."
+    just _confirm "Release sucm $v to TEST:\n  bump, tag, build, sua-cert-app, salt apply, apache restart\nProd is not touched."
     export YES=1
     just release-test "$v"
     just update-cert-app "$v"
