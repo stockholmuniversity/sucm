@@ -1,7 +1,22 @@
 # SUCM ACME compliance tester
 
 Black-box RFC 8555 tests for the SUCM ACME server (`/acme/...`). Priority: **can we get a certificate
-out**, not full RFC coverage. Tests are grouped in levels (pytest markers):
+out**, not full RFC coverage.
+
+## Purpose
+
+SUCM's ACME layer lets internal clients (certbot etc.) obtain certificates through SUCM's Harica/Vault
+pipeline. This tester answers, from the outside and with no access to SUCM internals:
+
+- Does the server work end to end for a real client (account with EAB, order, finalize, download, revoke)?
+- Does it reject what it must (domains outside the allow-list, wildcards, bad EAB, bad signatures/nonces,
+  malformed or hostile input) with correct `application/problem+json` errors, never a 5xx?
+- Does it follow the RFC 8555 details clients rely on (headers, error types, formats)?
+
+Use it after each deploy to sucm-test (see `just release` in the repo root), before enabling ACME in
+production, and to reproduce bugs. It is a development/feedback tool, not part of the deployed app.
+
+Tests are grouped in levels (pytest markers):
 
 | Level | Goal |
 |-------|------|
