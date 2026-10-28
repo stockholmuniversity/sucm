@@ -227,3 +227,15 @@ def test_c5_trailing_dot_rejected(acct, cfg):
     rejected (C5)."""
     resp = _order(acct, _dns(cfg.test_domain + "."))
     assert_problem(resp, "rejectedIdentifier")
+
+
+@pytest.mark.xfail(reason="F17: duplicate identifiers create duplicate authzs", strict=True)
+def test_l2_16_duplicate_identifiers_rejected(acct, cfg):
+    """The same identifier twice in one order must be deduplicated or
+    rejected (F17) - today it creates two duplicate authorizations."""
+    resp = _order(acct, _dns(cfg.test_domain, cfg.test_domain))
+    if resp.status_code == 201:
+        order = resp.json()
+        assert len(order["authorizations"]) == 1, order
+    else:
+        assert_problem(resp, "malformed", "rejectedIdentifier")

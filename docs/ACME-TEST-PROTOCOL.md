@@ -107,6 +107,7 @@ level 1 decides whether the ACME feature is usable.
 | F7 | **SUCM bug:** a signature with `alg: RS256` against an EC account returns HTTP 500 with HTML instead of problem+json (L3-08) | Probably an unhandled exception in `verify_signature()` when the algorithm does not match the key type. Robustness/DoS only, no authentication bypass: the signature is not accepted | Catch all exceptions in JWS verification and respond `malformed`/`badSignatureAlgorithm`; check that `alg` fits the JWK's `kty`/`crv`. **FIXED, verified on v0.25.0 (2026-10-27)** |
 | F8 | `Link: <…/directory>;rel="index"` is missing on responses (L4-03) | Not implemented | Low priority. Add in `after_request` for `/acme/*` except directory. **FIXED, verified on v0.25.0 (2026-10-27)** |
 | F9 | Revoking an already revoked certificate returns `unauthorized` instead of `alreadyRevoked` (RFC 8555 7.6) | Revoked certs are no longer an active, matching certificate for the account, so lookup fails before the revoked state can be recognized | Low priority. Cosmetic for clients; certbot treats both as failure. **FIXED, verified on v0.25.0 (2026-10-27)** |
+| F19 | **SUCM bug:** the served certificate chain is broken — the CA API's `fullchain` is stored/served verbatim and contains concatenated chain variants (leaf 3× at positions 0/1/5, intermediate 3×, issuer link broken after position 1) | `renew_cert_with_csr()` uses `cert_data[2]` (`fullchain`) as-is; `get_active_cert_pem()` serves it unchanged | Parse the fullchain, pick the leaf + the correct issuer chain (e.g. via `cnmatch`/issuer walk), store only that. **Found by L1-10 `test_5b` (run 5, 2026-10-28); xfail until fixed.** Limited client impact (TLS path building tolerates it) but violates RFC 8555 7.4.2 |
 
 ### Findings from the blind-spot audit (`ACME-TEST-PROTOCOL-AUDIT.md`)
 
@@ -179,11 +180,12 @@ Rerun on v0.14.0 2026-10-26: L1-01–08 PASS again (order 10024, cert_id 181).
 | L1-07 | Finalize with matching CSR | 7.4 | order becomes valid + certificate URL | `TestFlow::test_4` | **PASS** | After temporary `[ACME]` config (F1). Run 2026-10-23, 8/8 in 12 s |
 | L1-08 | Download certificate | 7.4.2 | `application/pem-certificate-chain`, SAN contains the domain | `TestFlow::test_5` | **PASS** | Content-Type and SAN verified. Issuer: GEANT TLS ECC 1 (see F4) |
 | L1-09 | certbot certonly end-to-end | – | cert in `live/`, `openssl x509` reads it | `e2e/certbot.sh` | ☐ | Needs its own account (different key than the tester) |
+| L1-10 | Chain order, signature links, pubkey match, validity, EKU | 7.4.2 | all sane | `TestFlow::test_5b`–`5e` | **PARTIAL** (run 5) | 5c/5d/5e PASS; 5b **xfail** — chain is broken (F19) |
 
 ## Level 2 – Renewal and basic negative cases (partially implemented)
 | ID | Test case | RFC | Expected | Result | Notes |
 |----|-----------|-----|----------|--------|-------|
-| L2-01 | New order for the same domain (renewal) | 7.4 | new cert issued, replaces previous ActiveCertificate | ☐ | Issues a real cert; F6 fix now deployed, so this can be tested |
+| L2-01 | New order for the same domain (renewal) | 7.4 | new cert issued, replaces previous ActiveCertificate | **PASS** (black-box, run 5) | `TestRenewal` (issues + verifies the new cert carries the renewal CSR's key, then revokes). The server-side check (same `cert_id` reused, old ActiveCertificate replaced, not orphaned) still needs DB access (G2) |
 | L2-02 | Domain outside allow-list | 7.4 | `rejectedIdentifier` | **PASS** | `test_l2_02` |
 | L2-03 | Wildcard (`*.domain`) | 7.4 | `rejectedIdentifier` (by design, not a bug) | **PASS** | `test_l2_03` |
 | L2-04 | Unknown EAB kid | 7.3.4 | `unauthorized`/`malformed` | **PASS** | `test_l2_04` |
@@ -198,6 +200,7 @@ Rerun on v0.14.0 2026-10-26: L1-01–08 PASS again (order 10024, cert_id 181).
 | L2-13 | EAB with wrong inner `url` | 7.3.4 | rejected | **PASS** (v0.28.2) | `test_l2_13` |
 | L2-14 | EAB with HS384/HS512 alg | 7.3.4 | rejected | **PASS** (v0.28.2) | `test_l2_14` (2 variants) |
 | L2-15 | EAB with wrong HMAC, isolated from key binding | 7.3.4 | rejected | **PASS** (v0.28.2) | `test_l2_15` |
+| L2-16 | Duplicate identifiers in one order | 7.4 | deduplicated or rejected | ☐ implemented as xfail (F17) | `test_l2_16_duplicate_identifiers_rejected` |
 
 ## Level 3 – Security and isolation (partially implemented)
 | ID | Test case | RFC | Expected | Result | Notes |
@@ -215,6 +218,7 @@ Rerun on v0.14.0 2026-10-26: L1-01–08 PASS again (order 10024, cert_id 181).
 | L3-10 | Oversized body (5 MB) | – | rejected | **PASS** | `test_l3_10` |
 | L3-11 | SQL-like/hostile identifier (SQLi, 5000 chars, CRLF) | – | rejected, no 500 | **PASS** | `test_l3_11` (4 variants) |
 | L3-12 | newAccount with already-bound EAB kid and a different key | 7.3.4 | rejected | **PASS** | Manually at 10:33 and automated `test_l3_12` |
+| L3-13 | Disabled account is locked out of all endpoints | – | `unauthorized` everywhere | ☐ implemented (opt-in) | `test_l3_13`; needs `ACME_DISABLED_*` creds + admin deactivation, see `tester.env.example` |
 
 ## Level 4 – Other conformance (partially implemented)
 | ID | Test case | RFC | Expected | Result | Notes |
@@ -256,12 +260,35 @@ C4/C5, L4-08, L4-10, L4-11, L4-12, L4-13, F13.
 
 **Side effects:** one real, publicly trusted cert issued and revoked (order 10103), as with previous runs.
 
+## Run 5 – SUCM v0.28.2 (2026-10-28, later same day)
+**Setup:** as run 4, plus the newly implemented L1-10 (certificate content, audit §6), L2-01 (renewal, audit G2,
+black-box part), L2-16 (duplicate identifiers, F17) and the opt-in L3-13 (disabled account, A3).
+
+| Command | Issues cert? | Result |
+|---------|--------------|--------|
+| `just issue` | yes (orders 10154–10157, all revoked) | first attempt: **16 passed, 1 FAILED** (`test_5b_chain_is_leaf_first_and_links`) → new finding F19; after marking it xfail: **16 passed, 1 xfailed** |
+| `just test` | no | 56 passed, 1 skipped (L3-13, opt-in), 8 xfailed |
+
+**New finding (F19, confirmed live):** the served certificate chain is broken. The Harica API's `fullchain`
+field contains multiple chain variants concatenated (leaf 3×, GEANT TLS ECC 1 intermediate 3×, HARICA root
+variants), and SUCM stores/serves it verbatim (`sucm_certificate.py` `renew_cert_with_csr()` →
+`commit_fullchain_to_db()` → `get_active_cert_pem()`). Observed chain: leaf at positions 0, 1 and 5;
+`chain[1].issuer != chain[2].subject`. Real-world impact is limited (TLS clients build their own path from
+the leaf + intermediates and typically ignore duplicates/misordering), but it violates RFC 8555 7.4.2's
+`application/pem-certificate-chain` contract and would confuse strict clients. `test_5b` pins it as strict
+xfail. The other L1-10 checks pass: pubkey matches the CSR key, EKU is serverAuth, validity period sane,
+every cert's signature verifies against the following cert's key.
+
+**L2-01 renewal (black-box part) passes:** second order for the same domain issues a new cert carrying the
+renewal CSR's key, downloads fine, and is revoked afterwards (order 10155+). The server-side part of G2
+(same `cert_id` reused, old ActiveCertificate replaced rather than orphaned) still needs a DB check.
+
 ## Summary (updated after each run)
 | Level | PASS | FAIL | BLOCKED | Not run | Accepted? |
 |-------|------|------|---------|---------|-----------|
-| 1 | 8 (L1-01–08) | 0 | 0 | 1 (L1-09 certbot) | ☐ (waiting for certbot) |
-| 2 | 15 (L2-02–15, incl. EAB negatives and L2-09 both directions) | 0 | 0 | 1 (L2-01 renewal) | ☐ |
-| 3 | 15 (L3-01a–d, 02, 02b, 03, 04, 05–12) | 0 | 0 | 1 (L3-13 disabled account) | ☐ |
+| 1 | 11 (L1-01–08, L1-10 partial) | 0 | 0 | 1 (L1-09 certbot); L1-10 5b xfail (F19) | ☐ (waiting for certbot + F19 fix) |
+| 2 | 16 (L2-01–15) | 0 | 0 | 0 (+1 xfail: L2-16/F17) | ☐ |
+| 3 | 15 (L3-01a–d, 02, 02b, 03, 04, 05–12) | 0 | 0 | 1 (L3-13, opt-in) | ☐ |
 | 4 | 5 (L4-01–04 + bad-csr regression) | 0 | 0 | 5 (L4-05–07, 09) + 7 xfail (L4-08, 10–13, F13) | ☐ |
 
 **Status 2026-10-28 (run 4, v0.28.2):** the whole flow with the custom client works (directory → newAccount with EAB → newOrder → authz →
@@ -269,7 +296,9 @@ finalize → cert), after `[ACME]` was added temporarily (F1). On v0.14.0 (2026-
 `Certificate` row and can be revoked via ACME. On v0.25.0 (2026-10-27, run 3) F7, F8 and F9 are fixed and all implemented tests pass. Open: certbot smoke
 test (L1-09), Harica being production (F4: two real certs issued, 180 not revoked, 181 revoked). Run 4 added the audit-derived tests:
 all cross-account isolation (A1) and EAB negative (B1–B4) tests pass; the remaining confirmed findings F10, F11, F13, F14, F15, F18
-are pinned as strict xfails.
+are pinned as strict xfails. Run 5 (same day) added L1-10, L2-01, L2-16 and the opt-in L3-13, and found **F19**:
+the served certificate chain is the CA's raw concatenated `fullchain` (leaf ×3, scrambled intermediates) — pinned as
+xfail in `test_5b` until the server stores a proper leaf+chain.
 
 **Recommendation (go / no-go for SUCM v0.12.0 ACME):** `________` (decided once level 1 is green)
 
@@ -285,8 +314,9 @@ are pinned as strict xfails.
 | ~~L4-11~~ | ~~Non-POST on `/acme/*` returns problem+json~~ | F14 | **implemented, xfail until F14 fixed** |
 | ~~L4-12~~ | ~~Non-empty POST-as-GET payload rejected~~ | F15 | **implemented, xfail until F15 fixed** |
 | ~~L4-13~~ | ~~Malformed payload shapes never give 5xx~~ | F18, D4 | **implemented: 2 xfail (F18 shapes) + 1 PASS (bad-base64 csr, fixed)** |
-| L2-16 | Duplicate identifiers / identifier cap | F16, F17 | decision |
-| L1-10 | Chain order, signature to root, key match, validity | §6 | issuance |
+| ~~L2-16~~ | ~~Duplicate identifiers~~ | F17 | **implemented, xfail (run 5)** — cap part still pending a decision (F16) |
+| ~~L1-10~~ | ~~Chain order, signature to root, key match, validity~~ | §6 | **implemented (run 5): 5c–5e PASS, 5b xfail (F19)** |
+| L3-13 | Disabled account cannot sign requests | A3 | **implemented (opt-in, run 5)** — needs `ACME_DISABLED_*` + admin deactivation |
 
 Tests for confirmed findings (F10–F18) are implemented as **expected-fail (xfail)** until fixed.
 

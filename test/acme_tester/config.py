@@ -55,6 +55,9 @@ class Config:
     eab_hmac_key2: str = ""
     account_key_file2: str = ""
     issued_order_url: str = ""
+    disabled_kid: str = ""
+    disabled_hmac_key: str = ""
+    disabled_account_key_file: str = ""
 
     @classmethod
     def from_env(cls):
@@ -81,5 +84,11 @@ class Config:
             ),
             issued_order_url=os.environ.get(
                 "ACME_ISSUED_ORDER_URL", read_last_order_url()
+            ),
+            disabled_kid=os.environ.get("ACME_DISABLED_KID", ""),
+            disabled_hmac_key=os.environ.get("ACME_DISABLED_HMAC_KEY", ""),
+            disabled_account_key_file=os.environ.get(
+                "ACME_DISABLED_ACCOUNT_KEY",
+                os.path.join(STATE_DIR, "disabled_account_key.pem"),
             ),
         )

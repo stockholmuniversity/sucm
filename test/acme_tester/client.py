@@ -164,8 +164,8 @@ def load_or_create_key(path):
     return key
 
 
-def make_csr(domains):
-    key = ec.generate_private_key(ec.SECP256R1())
+def make_csr(domains, key=None):
+    key = key or ec.generate_private_key(ec.SECP256R1())
     csr = (
         x509.CertificateSigningRequestBuilder()
         .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, domains[0])]))

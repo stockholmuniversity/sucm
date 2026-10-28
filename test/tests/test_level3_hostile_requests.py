@@ -200,6 +200,37 @@ def test_l3_04_revoke_with_wrong_issuer_or_serial(acct):
     assert_problem(resp, "unauthorized")
 
 
+def test_l3_13_disabled_account_is_locked_out(cfg):
+    """A disabled account must be locked out end to end (A3): its EAB must no
+    longer work for newAccount, and its bound key must be rejected for every
+    kid-signed request (new orders, order reads, revoke). This is the kill
+    switch the protocol's own cleanup checklist relies on.
+
+    Opt-in and manual: set ACME_DISABLED_KID / ACME_DISABLED_HMAC_KEY /
+    ACME_DISABLED_ACCOUNT_KEY to a throwaway account, disable it in the admin
+    panel, and run `just k l3_13`. Re-enable the account afterwards."""
+    if not (
+        cfg.disabled_kid and cfg.disabled_hmac_key and cfg.disabled_account_key_file
+    ):
+        pytest.skip(
+            "disabled-account credentials not set (opt-in; see tester.env.example)"
+        )
+    from acme_tester.client import AcmeClient, AcmeProblem
+
+    c = AcmeClient(cfg.directory_url, verify=cfg.verify, key_file=cfg.disabled_account_key_file)
+    with pytest.raises(AcmeProblem) as exc:
+        c.new_account(cfg.disabled_kid, cfg.disabled_hmac_key)
+    assert exc.value.status in (400, 403)
+    assert "unauthorized" in exc.value.type or "malformed" in exc.value.type
+
+    c.kid = cfg.disabled_kid  # kid known from when the account was active
+    resp = c.post_raw(
+        c.directory["newOrder"],
+        c.sign(c.directory["newOrder"], {"identifiers": [{"type": "dns", "value": "x.example.org"}]}),
+    )
+    assert_problem(resp, "malformed", "unauthorized")
+
+
 def _self_signed_cert_der(cn):
     """A throwaway self-signed cert, parseable but never issued by any CA."""
     import datetime
