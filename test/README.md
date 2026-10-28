@@ -50,6 +50,11 @@ A **second account** is optional but needed for the cross-account isolation test
 have it activated, and set `ACME_EAB_KID_2` / `ACME_EAB_HMAC_KEY_2` in `tester.env` (its key goes in `account_key_2.pem`).
 Without it those tests are skipped.
 
+Some tests (`L2-09b`, `L3-01d`, `L3-03`) need the URL of a previously issued, valid order so they can verify
+re-finalize, certificate download and revocation behaviour without issuing a new certificate. A successful
+`just issue` writes it to `last_order_url` in the state dir and prints it; the tests pick it up automatically.
+You can also set `ACME_ISSUED_ORDER_URL` in `tester.env` to override.
+
 State (credentials, keys, certbot's config) lives outside the repo in `~/.config/sucm-acme-tester/`
 (override with `ACME_STATE_DIR`). Environment variables override `tester.env`. Nothing secret is ever committed.
 

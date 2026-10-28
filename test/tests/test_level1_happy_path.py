@@ -7,6 +7,7 @@ import pytest
 from cryptography import x509
 
 from acme_tester.client import AcmeClient, AcmeProblem
+from acme_tester.config import write_last_order_url
 
 pytestmark = pytest.mark.level1
 
@@ -74,6 +75,10 @@ class TestFlow:
         assert order["status"] == "valid", order
         assert order.get("certificate")
         self.state["certificate"] = order["certificate"]
+        # Remember the valid order's URL so later runs (cross-account and
+        # re-finalize tests) can find an issued order without re-issuing.
+        write_last_order_url(self.state["order_url"])
+        print(f"\nissued order: {self.state['order_url']} (saved to state dir)")
 
     @pytest.mark.issuance
     def test_5_download_certificate(self, cfg):

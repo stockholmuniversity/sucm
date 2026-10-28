@@ -1,9 +1,15 @@
 """Level 3 (no-issuance subset): malformed/hostile requests must give a 4xx problem, never a 500."""
 
 import json
+import secrets
 
 import pytest
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import NameOID
 
+from acme_tester.client import b64
 from tests.conftest import assert_problem
 
 pytestmark = pytest.mark.level3
@@ -131,9 +137,84 @@ def test_l3_01b_other_account_cannot_read_authz(acct2, foreign_order):
 
 
 def test_l3_01c_other_account_cannot_finalize(acct2, foreign_order, cfg):
-    from acme_tester.client import b64, make_csr
+    from acme_tester.client import make_csr
 
     _, order = foreign_order
     url = order["finalize"]
     body = acct2.sign(url, {"csr": b64(make_csr([cfg.test_domain])[0])})
     assert_problem(acct2.post_raw(url, body), "unauthorized", "malformed")
+
+
+# --- L3-01d / L3-03: certificate download and revocation across accounts ----
+#
+# These need a previously issued, valid order (saved by `just issue`, or
+# ACME_ISSUED_ORDER_URL) so they can verify that the certificate download and
+# revocation endpoints apply the same account-ownership checks as the order
+# endpoints. They do not issue a new certificate themselves.
+
+
+@pytest.fixture
+def issued_order(acct, cfg):
+    """A valid, already-finalized order owned by account A (see README)."""
+    if not cfg.issued_order_url:
+        pytest.skip("no issued order known (run `just issue` once, or set ACME_ISSUED_ORDER_URL)")
+    order = acct.get_order(cfg.issued_order_url)
+    if order["status"] != "valid" or not order.get("certificate"):
+        pytest.skip(f"issued order is not valid: {order.get('status')}")
+    return order
+
+
+def test_l3_01d_other_account_cannot_download_cert(acct2, issued_order):
+    """Account B must not be able to download account A's certificate (L3-01)."""
+    url = issued_order["certificate"]
+    assert_problem(acct2.post_raw(url, acct2.sign(url, None)), "unauthorized", "malformed")
+
+
+def test_l3_03_other_account_cannot_revoke_cert(acct, acct2, cfg, issued_order):
+    """Account B must not be able to revoke a certificate in account A's
+    namespace (L3-03). A self-signed cert carrying A's test domain is used:
+    B has no order with a matching issuer+serial, so the answer must be
+    unauthorized - even though the CN collides with A's (revoked) cert,
+    which must NOT leak an alreadyRevoked to B (F9/G3 edge case). Using a
+    self-signed cert keeps this test independent of whether A's real cert
+    has since been revoked (`just issue` revokes it, after which even A
+    gets 404 on download)."""
+    der = _self_signed_cert_der(cfg.test_domain)
+    resp = acct2.post_raw(
+        acct2.directory["revokeCert"],
+        acct2.sign(acct2.directory["revokeCert"], {"certificate": b64(der)}),
+    )
+    assert_problem(resp, "unauthorized")
+
+
+def test_l3_04_revoke_with_wrong_issuer_or_serial(acct):
+    """Revocation of a certificate the account never received must be denied
+    (L3-04). A self-signed cert with an unrelated CN matches no issuer+serial
+    of any stored cert and no CN either, so the F9 _cert_matches_leaf()
+    heuristic cannot turn the answer into alreadyRevoked: expect unauthorized."""
+    der = _self_signed_cert_der(f"l304-{secrets.token_hex(4)}.example.org")
+    resp = acct.post_raw(
+        acct.directory["revokeCert"],
+        acct.sign(acct.directory["revokeCert"], {"certificate": b64(der)}),
+    )
+    assert_problem(resp, "unauthorized")
+
+
+def _self_signed_cert_der(cn):
+    """A throwaway self-signed cert, parseable but never issued by any CA."""
+    import datetime
+
+    key = ec.generate_private_key(ec.SECP256R1())
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, cn)]))
+        .issuer_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, cn)]))
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.datetime.now(datetime.timezone.utc))
+        .not_valid_after(
+            datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1)
+        )
+        .sign(key, hashes.SHA256())
+    )
+    return cert.public_bytes(serialization.Encoding.DER)

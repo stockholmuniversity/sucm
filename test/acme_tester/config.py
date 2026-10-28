@@ -23,6 +23,26 @@ def load_state_env():
             os.environ.setdefault(key.strip(), value.strip())
 
 
+LAST_ORDER_FILE = os.path.join(STATE_DIR, "last_order_url")
+
+
+def read_last_order_url():
+    """URL of the most recent order that reached 'valid' (written by the
+    issuance flow). Fallback for ACME_ISSUED_ORDER_URL so the cross-account
+    and re-finalize tests work without a manual step after `just issue`."""
+    try:
+        with open(LAST_ORDER_FILE, encoding="utf-8") as fh:
+            return fh.read().strip()
+    except OSError:
+        return ""
+
+
+def write_last_order_url(url):
+    fd = os.open(LAST_ORDER_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(url + "\n")
+
+
 @dataclass
 class Config:
     directory_url: str
@@ -34,6 +54,7 @@ class Config:
     eab_kid2: str = ""
     eab_hmac_key2: str = ""
     account_key_file2: str = ""
+    issued_order_url: str = ""
 
     @classmethod
     def from_env(cls):
@@ -57,5 +78,8 @@ class Config:
             eab_hmac_key2=os.environ.get("ACME_EAB_HMAC_KEY_2", ""),
             account_key_file2=os.environ.get(
                 "ACME_ACCOUNT_KEY_2", os.path.join(STATE_DIR, "account_key_2.pem")
+            ),
+            issued_order_url=os.environ.get(
+                "ACME_ISSUED_ORDER_URL", read_last_order_url()
             ),
         )

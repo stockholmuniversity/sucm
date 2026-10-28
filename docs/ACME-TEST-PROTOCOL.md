@@ -191,22 +191,26 @@ Rerun on v0.14.0 2026-10-26: L1-01–08 PASS again (order 10024, cert_id 181).
 | L2-06 | Reused nonce | 6.5 | `badNonce` | **PASS** | `test_l2_06` |
 | L2-07 | Invalid/old nonce | 6.5 | `badNonce` | **PASS** | `test_l2_07` |
 | L2-08 | Finalize with CSR whose SAN does not match the order | 7.4 | `badCSR` | **PASS** | `test_l2_08` (no issuance) |
-| L2-09 | Finalize on an order that is not ready | 7.4 | `orderNotReady` | ☐ | Hard to reach, orders become `ready` immediately |
+| L2-09 | Finalize on an order that is not ready | 7.4 | `orderNotReady` | **PASS** (v0.28.2) | `test_l2_09_failed_finalize_is_retryable` (failed finalize is retryable: order stays `ready`, retry gives `badCSR` again) and `test_l2_09b_finalize_valid_order_again_is_order_not_ready` (valid order re-finalized → `orderNotReady`) |
 | L2-10 | Empty identifier list / unknown identifier type | 7.4 | `malformed`/`unsupportedIdentifier` | **PASS** | `test_l2_10`, `test_l2_10b` |
 | L2-11 | Account not activated | – | `unauthorized` | **PASS** (observed manually) | 10:30, `requested but not yet activated` |
+| L2-12 | newAccount without EAB | 7.3.4 | `externalAccountRequired` | **PASS** (v0.28.2) | `test_l2_12` |
+| L2-13 | EAB with wrong inner `url` | 7.3.4 | rejected | **PASS** (v0.28.2) | `test_l2_13` |
+| L2-14 | EAB with HS384/HS512 alg | 7.3.4 | rejected | **PASS** (v0.28.2) | `test_l2_14` (2 variants) |
+| L2-15 | EAB with wrong HMAC, isolated from key binding | 7.3.4 | rejected | **PASS** (v0.28.2) | `test_l2_15` |
 
 ## Level 3 – Security and isolation (partially implemented)
 | ID | Test case | RFC | Expected | Result | Notes |
 |----|-----------|-----|----------|--------|-------|
-| L3-01 | Account B fetches account A's order/authz, or finalizes it (cert download: not yet) | 10.x | denied/404 | ☐ implemented (3 tests, skipped without account 2), not yet run | Needs a second account (`ACME_EAB_KID_2`) |
+| L3-01 | Account B fetches account A's order/authz/cert, or finalizes it | 10.x | denied/404 | **PASS** (v0.28.2) | `test_l3_01a`–`d` (order, authz, finalize, cert download). Needs a second account (`ACME_EAB_KID_2`) |
 | L3-02 | Revoke own cert | 7.6 | 200 | **PASS** (v0.14.0) | `TestRevoke::test_6`. Earlier FAIL on v0.12.0 (F6). Cert 181 revoked 2026-10-26 15:22. Cert 180 (order 10020, pre-fix) is still not revoked |
-| L3-02b | Revoke the same cert again | 7.6 | `alreadyRevoked` | **FAIL** | `TestRevoke::test_7`: returns `unauthorized` (F9) |
-| L3-03 | Revoke another account's cert | 7.6 | `unauthorized` | ☐ | |
-| L3-04 | Revoke with wrong issuer/serial | 7.6 | denied | ☐ | |
+| L3-02b | Revoke the same cert again | 7.6 | `alreadyRevoked` | **PASS** (v0.25.0) | `TestRevoke::test_7`. Earlier FAIL (F9, fixed) |
+| L3-03 | Revoke another account's cert | 7.6 | `unauthorized` | **PASS** (v0.28.2) | `test_l3_03` (self-signed cert with A's CN, submitted by B; also pins the F9/G3 CN-collision edge case) |
+| L3-04 | Revoke with wrong issuer/serial | 7.6 | denied | **PASS** (v0.28.2) | `test_l3_04` (self-signed cert, unrelated CN) |
 | L3-05 | Invalid signature | 6.2 | `malformed`/`unauthorized` | **PASS** | `test_l3_05` |
 | L3-06 | `url` in header ≠ request URL | 6.4 | rejected | **PASS** | `test_l3_06` |
 | L3-07 | Both `jwk` and `kid` | 6.2 | `malformed` | **PASS** | `test_l3_07` |
-| L3-08 | Unsupported alg (`none`, HS256 on outer JWS, RS256 with EC key) | 6.2 | `badSignatureAlgorithm`/`malformed`, no 500 | **FAIL** | `none`, `HS256`, missing alg: PASS. **`RS256` with an EC key returns HTTP 500 (HTML), see F7.** Rechecked on v0.14.0: still failing |
+| L3-08 | Unsupported alg (`none`, HS256 on outer JWS, RS256 with EC key) | 6.2 | `badSignatureAlgorithm`/`malformed`, no 500 | **PASS** (v0.25.0) | `test_l3_08`. Earlier FAIL (F7, fixed) |
 | L3-09 | Broken JSON, empty body, wrong Content-Type | 6.2 | problem+json, no 500 | **PASS** | `test_l3_09`, `test_l3_09b` (5 variants + wrong Content-Type, all 4xx) |
 | L3-10 | Oversized body (5 MB) | – | rejected | **PASS** | `test_l3_10` |
 | L3-11 | SQL-like/hostile identifier (SQLi, 5000 chars, CRLF) | – | rejected, no 500 | **PASS** | `test_l3_11` (4 variants) |
@@ -217,26 +221,55 @@ Rerun on v0.14.0 2026-10-26: L1-01–08 PASS again (order 10024, cert_id 181).
 |----|-----------|-----|----------|--------|-------|
 | L4-01 | Error responses are `application/problem+json` with `urn:ietf:params:acme:error:*` | 6.7 | yes | **PASS** | `test_l4_01` |
 | L4-02 | Replay-Nonce on all responses, including errors | 6.5 | yes | **PASS** | `test_l4_02` |
-| L4-03 | `Link: <directory>;rel="index"` | 7.1 | yes | **FAIL** | Header missing on newOrder responses (F8). Rechecked on v0.14.0: still failing |
+| L4-03 | `Link: <directory>;rel="index"` | 7.1 | yes | **PASS** (v0.25.0) | `test_l4_03`. Earlier FAIL (F8, fixed) |
 | L4-04 | `Cache-Control: no-store` on newNonce | 7.2 | yes | **PASS** | `test_l4_04` |
 | L4-05 | `onlyReturnExisting` | 7.3.1 | supported or N/A | ☐ | |
 | L4-06 | Account update / deactivate | 7.3.2, 7.3.6 | supported or N/A | ☐ | |
 | L4-07 | Key rollover | 7.3.5 | supported or N/A | ☐ | |
-| L4-08 | Order list for account | 7.1.2.1 | supported or N/A | ☐ | |
+| L4-08 | Order list for account | 7.1.2.1 | supported or N/A | ☐ implemented as xfail (F10) | `test_l4_08_account_orders_lists_orders` |
 | L4-09 | ARI (RFC 9773) | 9773 | supported or N/A | ☐ | |
+| L4-10 | `expires` is RFC 3339 and UTC | 7.1.3 | yes | ☐ implemented as xfail (F11) | `test_l4_10_expires_is_rfc3339_utc` |
+| L4-11 | GET on POST-only endpoint returns problem+json | 6.7 | yes | ☐ implemented as xfail (F14) | `test_l4_11_get_on_post_only_endpoint_is_problem_json` |
+| L4-12 | POST-as-GET with non-empty payload rejected | 6.3 | yes | ☐ implemented as xfail (F15) | `test_l4_12_post_as_get_with_payload_rejected` |
+| L4-13 | Malformed payload shapes never give 5xx | 6.2 | yes | ☐ implemented as xfail (F18) | `test_l4_13_malformed_payload_shapes_never_5xx` (2 variants), `test_l4_13b_bad_base64_csr_never_5xx` |
+| L4-13b | Re-registration with same key returns 200 | 7.3.1 | yes | ☐ implemented as xfail (F13) | `test_l4_13b_reregistration_returns_200` |
+
+## Run 4 – SUCM v0.28.2 (2026-10-28)
+**Setup:** SUCM v0.28.2 on sucm-test, two accounts (the tester's own + a second for the isolation tests),
+run from cljo1227's machine. New audit-derived tests implemented: L2-09, L2-12…15, L3-01a–d, L3-03, L3-04,
+C4/C5, L4-08, L4-10, L4-11, L4-12, L4-13, F13.
+
+| Command | Issues cert? | Result |
+|---------|--------------|--------|
+| `just issue` (level 1 + issuance) | yes (order 10103, authz 10203) | 10 passed; order URL saved to `last_order_url` |
+| `just test` (`-m "not issuance"`) | no | **56 passed, 4 deselected, 7 xfailed** |
+
+- Cross-account isolation (A1) now fully covered and green: L3-01a–d (order/authz/finalize/cert) and
+  L3-03 (cross-account revoke; self-signed cert with A's CN → `unauthorized`, no `alreadyRevoked` leak) and
+  L3-04 (unrelated self-signed cert → `unauthorized`).
+- EAB negatives B1–B4 green: L2-12 `externalAccountRequired`, L2-13 wrong EAB url, L2-14 HS384/HS512, L2-15 wrong HMAC.
+- L2-09 both directions green: failed finalize is retryable (`badCSR` again), re-finalize of a valid order → `orderNotReady`.
+- 7 strict xfails pin the confirmed open findings: F10 (orders list stub), F11 (`expires` TZ), F13 (re-registration 201),
+  F14 (HTML 405), F15 (non-empty POST-as-GET), F18 ×2 (malformed payload shapes → 500). The bad-base64url-`csr`
+  variant of F18 no longer reproduces on v0.28.2 (returns 4xx), so `test_l4_13b_bad_base64_csr_never_5xx` is a passing
+  regression test, not an xfail.
+
+**Side effects:** one real, publicly trusted cert issued and revoked (order 10103), as with previous runs.
 
 ## Summary (updated after each run)
 | Level | PASS | FAIL | BLOCKED | Not run | Accepted? |
 |-------|------|------|---------|---------|-----------|
 | 1 | 8 (L1-01–08) | 0 | 0 | 1 (L1-09 certbot) | ☐ (waiting for certbot) |
-| 2 | 9 (L2-02–08, 10, 11) | 0 | 0 | 2 (L2-01 renewal, L2-09) | ☐ |
-| 3 | 11 (L3-02, 02b, 05–12) | 0 | 0 | 3 (L3-01, 03, 04) | ☐ |
-| 4 | 4 (L4-01–04) | 0 | 0 | 5 (L4-05–09) | ☐ |
+| 2 | 15 (L2-02–15, incl. EAB negatives and L2-09 both directions) | 0 | 0 | 1 (L2-01 renewal) | ☐ |
+| 3 | 15 (L3-01a–d, 02, 02b, 03, 04, 05–12) | 0 | 0 | 1 (L3-13 disabled account) | ☐ |
+| 4 | 5 (L4-01–04 + bad-csr regression) | 0 | 0 | 5 (L4-05–07, 09) + 7 xfail (L4-08, 10–13, F13) | ☐ |
 
-**Status 2026-10-23:** the whole flow with the custom client works (directory → newAccount with EAB → newOrder → authz →
+**Status 2026-10-28 (run 4, v0.28.2):** the whole flow with the custom client works (directory → newAccount with EAB → newOrder → authz →
 finalize → cert), after `[ACME]` was added temporarily (F1). On v0.14.0 (2026-10-26) the F6 fix is verified: issued certs get a
 `Certificate` row and can be revoked via ACME. On v0.25.0 (2026-10-27, run 3) F7, F8 and F9 are fixed and all implemented tests pass. Open: certbot smoke
-test (L1-09), Harica being production (F4: two real certs issued, 180 not revoked, 181 revoked).
+test (L1-09), Harica being production (F4: two real certs issued, 180 not revoked, 181 revoked). Run 4 added the audit-derived tests:
+all cross-account isolation (A1) and EAB negative (B1–B4) tests pass; the remaining confirmed findings F10, F11, F13, F14, F15, F18
+are pinned as strict xfails.
 
 **Recommendation (go / no-go for SUCM v0.12.0 ACME):** `________` (decided once level 1 is green)
 
@@ -244,18 +277,18 @@ test (L1-09), Harica being production (F4: two real certs issued, 180 not revoke
 
 | ID | Test | Audit/finding | Needs |
 |----|------|---------------|-------|
-| L2-09 | Re-finalize a valid order → `orderNotReady` | C2 (verified live manually) | 1 prior issued order |
-| L2-12…15 | EAB negatives: missing, wrong `url`, non-HS256, wrong HMAC | B1–B4 (verified live manually) | nothing |
-| L3-01/03/04 | Cross-account order/authz/cert/revoke isolation | A1 | second account |
+| ~~L2-09~~ | ~~Re-finalize a valid order → `orderNotReady`~~ | C2 | **done, PASS (run 4)** |
+| ~~L2-12…15~~ | ~~EAB negatives: missing, wrong `url`, non-HS256, wrong HMAC~~ | B1–B4 | **done, PASS (run 4)** |
+| ~~L3-01/03/04~~ | ~~Cross-account order/authz/cert/revoke isolation~~ | A1 | **done, PASS (run 4)** |
 | L3-13 | Disabled account cannot sign requests | A3 | admin deactivation |
-| L4-10 | `expires` is RFC 3339 and within ±1 min of UTC now + 7 d | F11 | nothing |
-| L4-11 | Non-POST on `/acme/*` returns problem+json | F14 | nothing |
-| L4-12 | Non-empty POST-as-GET payload rejected | F15 | nothing |
-| L4-13 | Malformed payload shapes never give 5xx | F18, D4 | nothing |
+| ~~L4-10~~ | ~~`expires` is RFC 3339 and within ±1 min of UTC now + 7 d~~ | F11 | **implemented, xfail until F11 fixed** |
+| ~~L4-11~~ | ~~Non-POST on `/acme/*` returns problem+json~~ | F14 | **implemented, xfail until F14 fixed** |
+| ~~L4-12~~ | ~~Non-empty POST-as-GET payload rejected~~ | F15 | **implemented, xfail until F15 fixed** |
+| ~~L4-13~~ | ~~Malformed payload shapes never give 5xx~~ | F18, D4 | **implemented: 2 xfail (F18 shapes) + 1 PASS (bad-base64 csr, fixed)** |
 | L2-16 | Duplicate identifiers / identifier cap | F16, F17 | decision |
 | L1-10 | Chain order, signature to root, key match, validity | §6 | issuance |
 
-Tests for confirmed findings (F10–F18) should be added as expected-fail/xfail until fixed.
+Tests for confirmed findings (F10–F18) are implemented as **expected-fail (xfail)** until fixed.
 
 ## Planned: real ACME clients (Level 5)
 
