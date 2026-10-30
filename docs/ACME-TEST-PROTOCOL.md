@@ -283,6 +283,23 @@ every cert's signature verifies against the following cert's key.
 renewal CSR's key, downloads fine, and is revoked afterwards (order 10155+). The server-side part of G2
 (same `cert_id` reused, old ActiveCertificate replaced rather than orphaned) still needs a DB check.
 
+## Run 6 – real certbot (L1-09), SUCM v0.28.x (2026-10-30)
+**Setup:** certbot 5.9.0 on the shell host, `test/e2e/certbot.sh`, throwaway account 10021 (own EAB credentials via
+`ACME_CERTBOT_EAB_KID`/`ACME_CERTBOT_EAB_HMAC_KEY`; the tester's EAB is bound to the tester's account key and is
+rejected for certbot's key), allow-listed domain `haak0644.it.su.se`.
+
+| Command | Issues cert? | Result |
+|---------|--------------|--------|
+| `ACME_STATE_DIR=<tmp> ./e2e/certbot.sh` | yes (real Harica cert) | **PASS**: account registered, cert issued, `openssl verify` OK |
+
+Certificate: CN=haak0644.it.su.se, issuer GEANT TLS ECC 1, serial `5DD319B9EC39A89D575A43A0519C0EC6`,
+valid until 2027-05-17. **L1-09 = PASS.**
+
+**F19 reconfirmed with a real client:** the `fullchain.pem` certbot received contains 8 certificates (leaf at
+positions 0, 1 and 5; GEANT intermediate 3x; root variants). Cause is the Harica `GetCertificate` response (see
+Run 5); `harica_eab.download_certificate()` joins every PEM block verbatim without deduplication. certbot and
+`openssl verify` accept it. Proposed fix: deduplicate and order leaf-first in `download_certificate()`.
+
 ## Summary (updated after each run)
 | Level | PASS | FAIL | BLOCKED | Not run | Accepted? |
 |-------|------|------|---------|---------|-----------|
