@@ -78,111 +78,57 @@ The snippet below is a static, illustrative copy - keep both in sync manually.)*
 
 </VirtualHost>
 
-**Create db tables**
+**Database schema**
 
-    CREATE TABLE CertificateAuthority (
-    CA_Id INT UNSIGNED NOT NULL,
-    CA_Name TEXT NOT NULL,
-    Auth_Method TEXT NOT NULL,
-    PRIMARY KEY (CA_Id));
-    
-    INSERT INTO CertificateAuthority (CA_Id, CA_Name, Auth_Method)
-    VALUES
-    ('1', 'Sectigo', 'EAB'),
-    ('2', 'Dummy CA', 'Returns Snakeoil');
-    
-    CREATE TABLE Certificate(
-    Cert_Id INT UNSIGNED NOT NULL,
-    CA_Id INT NOT NULL,
-    Common_Name TEXT NOT NULL,
-    Subject_Alt TEXT NOT NULL,
-    Country TEXT NOT NULL,
-    State TEXT NOT NULL,
-    City TEXT NOT NULL,
-    Org TEXT NOT NULL,
-    Status TEXT NOT NULL,
-    Type TEXT NOT NULL,
-    Secret_Path TEXT NOT NULL,
-    Notify_Group_Id INT NULL,
-    Create_Date DATE NULL,
-    Expiry_Date DATE NULL,
-    PRIMARY KEY (Cert_Id));
-    
-    CREATE TABLE ActiveCertificate(
-    ActiveCertificate_Id INT UNSIGNED NOT NULL,
-    Cert_Id INT NOT NULL,
-    Common_Name TEXT NOT NULL,
-    Cert_PEM TEXT NOT NULL,
-    Create_Date DATE NULL,
-    Expiry_Date DATE NULL,
-    PRIMARY KEY (ActiveCertificate_Id));
-    
-    CREATE TABLE NotifyGroup(
-    Group_Id INT UNSIGNED NOT NULL,
-    Group_Name TEXT NOT NULL,
-    Email_CSV TEXT NOT NULL,
-    PRIMARY KEY (Group_Id));
+The canonical schema is [`sql/schema.sql`](sql/schema.sql). It is the
+production baseline (dumped 2026-11-03, kept for reference in
+`docs/sucm-prod-ddl-2026-11-03.sql`). There is no ORM: the application never
+creates or alters tables itself, so a new system must be set up with this file.
 
-**ACME MITM layer - account/domain tables (phase 1) + ACME server tables (phase 2)**
+The file is **idempotent and additive only** (`CREATE TABLE IF NOT EXISTS`,
+`INSERT IGNORE`). It never alters, drops or overwrites anything, so it is safe to
+run against a database that already holds data - it only adds what is missing.
 
-*(Apply with `scripts/migrate_acme_accounts.py` instead of running this SQL by
-hand - see the script's `--help`/`--dry-run` for details. Statements below are
-kept here as the canonical schema reference. If you already ran an earlier
-version of this script, re-run it - it renames the old
-Kid/Hmac_Key_Hash/Jwk_Thumbprint columns, adds Name/Topdesk_Ticket, drops
-the unused Owner_Contact column, and creates the `IdCounter` table used for
-atomic app-side primary-key allocation.)*
+Tables:
 
-    CREATE TABLE AcmeAccount(
-    Account_Id INT UNSIGNED NOT NULL,
-    Eab_Kid VARCHAR(64) NOT NULL,
-    Hmac_Key_Encrypted TEXT NOT NULL,
-    Name VARCHAR(255) NOT NULL,
-    Topdesk_Ticket VARCHAR(64) NOT NULL,
-    Status TEXT NOT NULL,
-    Jwk_Json TEXT NULL,
-    Requested_By VARCHAR(255) NULL,
-    Create_Date DATETIME NULL,
-    Activated_By VARCHAR(255) NULL,
-    Activated_Date DATETIME NULL,
-    PRIMARY KEY (Account_Id),
-    UNIQUE KEY uq_acmeaccount_eab_kid (Eab_Kid));
+| Group | Tables |
+|-------|--------|
+| Certificates | `CertificateAuthority`, `Certificate`, `ActiveCertificate`, `NotifyGroup` |
+| Id allocation | `IdCounter` - the app assigns integer primary keys itself (no `AUTO_INCREMENT`); `sucm_db.claim_next_id()` creates a row per table on first use, seeded from `MAX(pk)`, so leave it empty |
+| ACME layer | `AcmeAccount`, `AcmeAccountDomain`, `AcmeNonce`, `AcmeOrder`, `AcmeAuthorization`, `AcmeRevealToken` |
 
-    CREATE TABLE AcmeAccountDomain(
-    Domain_Id INT UNSIGNED NOT NULL,
-    Account_Id INT UNSIGNED NOT NULL,
-    Domain_Pattern VARCHAR(255) NOT NULL,
-    PRIMARY KEY (Domain_Id),
-    FOREIGN KEY (Account_Id) REFERENCES AcmeAccount(Account_Id) ON DELETE CASCADE);
+`CertificateAuthority` is seeded with `Sectigo` (1, legacy), `Dummy CA` (2) and
+`Harica` (3); the `[ACME]` `ca_plugin_name` setting must match one of these names.
 
-    CREATE TABLE AcmeNonce(
-    Nonce VARCHAR(64) NOT NULL,
-    Create_Date DATETIME NOT NULL,
-    PRIMARY KEY (Nonce));
+Set up a **new system**:
 
-    CREATE TABLE AcmeOrder(
-    Order_Id INT UNSIGNED NOT NULL,
-    Account_Id INT UNSIGNED NOT NULL,
-    Status TEXT NOT NULL,
-    Identifiers TEXT NOT NULL,
-    Cert_Id INT UNSIGNED NULL,
-    Expires DATETIME NOT NULL,
-    Create_Date DATETIME NOT NULL,
-    Error TEXT NULL,
-    PRIMARY KEY (Order_Id),
-    FOREIGN KEY (Account_Id) REFERENCES AcmeAccount(Account_Id) ON DELETE CASCADE);
+    CREATE DATABASE cert_app CHARACTER SET utf8 COLLATE utf8_swedish_ci;
+    -- then, as a user allowed to CREATE tables:
+    mysql cert_app < sql/schema.sql
 
-    CREATE TABLE AcmeAuthorization(
-    Authz_Id INT UNSIGNED NOT NULL,
-    Order_Id INT UNSIGNED NOT NULL,
-    Identifier_Type VARCHAR(16) NOT NULL,
-    Identifier_Value VARCHAR(255) NOT NULL,
-    Status TEXT NOT NULL,
-    Challenge_Token VARCHAR(64) NOT NULL,
-    Challenge_Status TEXT NOT NULL,
-    Expires DATETIME NOT NULL,
-    PRIMARY KEY (Authz_Id),
-    FOREIGN KEY (Order_Id) REFERENCES AcmeOrder(Order_Id) ON DELETE CASCADE);
+Use the same character set/collation as production (`utf8` / `utf8_swedish_ci`);
+the tables inherit it from the database. Table names are used in CamelCase by the
+code, so a server with `lower_case_table_names=1` (as on test) is fine.
+
+**Upgrade an existing system** that predates the ACME layer: run
+`sql/schema.sql` (adds the missing tables only). If it has an *old phase-1 ACME
+schema*, use `scripts/migrate_acme_accounts.py` instead (`--dry-run` first): it
+renames the old `Kid`/`Hmac_Key_Hash`/`Jwk_Thumbprint` columns, adds
+`Name`/`Topdesk_Ticket`, drops the unused `Owner_Contact` and creates the ACME
+tables.
+
+Safe workflow against production: take a backup, review the plan, then apply.
+
+    mysqldump --single-transaction --no-tablespaces cert_app > pre-change.sql   # contains data: chmod 600, never commit
+    mysql cert_app < sql/schema.sql
+
+To capture a schema baseline (no data) for comparison:
+
+    mysqldump --no-data --skip-comments --skip-add-drop-table \
+      --single-transaction --no-tablespaces cert_app > ddl-$(date +%F).sql
+
+
+The ACME tables (`AcmeAccount` etc.) are part of `sql/schema.sql`.
 
 **Atomic id-allocation table**
 
@@ -190,29 +136,16 @@ The app assigns integer primary keys itself (no AUTO_INCREMENT) for
 `Certificate`, `ActiveCertificate`, `NotifyGroup`, and the ACME tables. To make
 that race-free across the app's separate DB connections (web UI, ACME
 finalize, and the scheduler), `sucm_db.claim_next_id()` bumps a per-table row
-here atomically (`INSERT ... ON DUPLICATE KEY UPDATE`), seeded from the live
-table's `MAX(pk)` on first use:
-
-    CREATE TABLE IdCounter(
-    name VARCHAR(64) NOT NULL,
-    value INT UNSIGNED NOT NULL,
-    PRIMARY KEY (name));
+in `IdCounter` atomically (`INSERT ... ON DUPLICATE KEY UPDATE`), seeded from the
+live table's `MAX(pk)` on first use.
 
 **One-time ACME credential-reveal table**
 
 When an ACME account is requested, its plaintext EAB HMAC key is shown to the
 requester exactly once. To avoid round-tripping that secret through the
-client-side session cookie, it is kept server-side (Fernet-encrypted) in this
-table, keyed by an unguessable one-time token that is deleted on first read
-(`sucm_acme_reveal.py`); expired unconsumed tokens are pruned by the scheduler:
-
-    CREATE TABLE AcmeRevealToken(
-    Token VARCHAR(64) NOT NULL,
-    Account_Id INT UNSIGNED NOT NULL,
-    Hmac_Key_Encrypted TEXT NOT NULL,
-    Create_Date DATETIME NOT NULL,
-    PRIMARY KEY (Token),
-    FOREIGN KEY (Account_Id) REFERENCES AcmeAccount(Account_Id) ON DELETE CASCADE);
+client-side session cookie, it is kept server-side (Fernet-encrypted) in
+`AcmeRevealToken`, keyed by an unguessable one-time token that is deleted on first
+read (`sucm_acme_reveal.py`); expired unconsumed tokens are pruned by the scheduler.
 
 **ACME server (phase 2)**
 
