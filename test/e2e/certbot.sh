@@ -10,7 +10,10 @@ STATE="${ACME_STATE_DIR:-$HOME/.config/sucm-acme-tester}"
 if [ -f "$STATE/tester.env" ]; then
   set -a; . "$STATE/tester.env"; set +a
 fi
-: "${ACME_DIRECTORY:?}" "${ACME_EAB_KID:?}" "${ACME_EAB_HMAC_KEY:?}" "${ACME_TEST_DOMAIN:?}"
+# certbot has its own account key, so it needs its own EAB credentials (falls back to the tester's).
+EAB_KID="${ACME_CERTBOT_EAB_KID:-${ACME_EAB_KID:-}}"
+EAB_HMAC_KEY="${ACME_CERTBOT_EAB_HMAC_KEY:-${ACME_EAB_HMAC_KEY:-}}"
+: "${ACME_DIRECTORY:?}" "${EAB_KID:?}" "${EAB_HMAC_KEY:?}" "${ACME_TEST_DOMAIN:?}"
 
 umask 077
 mkdir -p "$STATE/certbot"
@@ -24,7 +27,7 @@ trap 'rm -rf "$WORK"' EXIT
 certbot certonly \
   --config "$WORK/cli.ini" \
   --server "$ACME_DIRECTORY" \
-  --eab-kid "$ACME_EAB_KID" --eab-hmac-key "$ACME_EAB_HMAC_KEY" \
+  --eab-kid "$EAB_KID" --eab-hmac-key "$EAB_HMAC_KEY" \
   --manual --preferred-challenges http --manual-auth-hook /bin/true \
   --register-unsafely-without-email --agree-tos --non-interactive --force-renewal \
   -d "$ACME_TEST_DOMAIN" \
