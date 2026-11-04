@@ -133,7 +133,8 @@ endpoint. Key design points:
     since these endpoints are reached directly by unauthenticated-at-the-Apache-layer clients.
 
 ### Auth tiers (Apache/Shibboleth, config lives in the separate `su-salt-states-services-cert` repo)
-- General app + `/acme-accounts/request`+`/created` → `it-staff` (existing default `<LocationMatch "^/">`).
+- General app → `it-staff` (existing default `<LocationMatch "^/">`); `/acme-accounts/request`+`/created`
+  → `it-staff` **or** `su-lokal-it-ansvarig` (the self-service ACME account requester group).
 - `/acme-accounts/admin*` → `it-produktion-infra-imdb`, via a more specific `<LocationMatch>` block that
   sets **`AuthMerging Off`** — required, otherwise Apache's default `Require` merging is an implicit OR
   across overlapping `<LocationMatch>` sections and `it-staff` would also satisfy the admin path.
@@ -171,10 +172,6 @@ apscheduler (background jobs), requests_toolbelt.
 
 ## Pre-production blockers
 These MUST be resolved before the ACME layer (or a production release) ships:
-- **`acme_requester` role group** (`sucm_globals.py`): currently the `jira-administrators`
-  placeholder. Replace with the real "org but not it-staff" `memberOf` group, in lockstep with the
-  matching `<LocationMatch "^/acme-accounts/(request|created)">` block in
-  `su-salt-states-services-cert`'s `sucm-apache.conf`. (Decision on the real group is pending.)
 - **`[ACME]` config section** (`sucm_conf.ini`): set `ca_plugin_name`, `secret_path`, and
   `notify_group_id` to real production values — see "The ACME MITM layer" above. Issuance fails
   closed until then.

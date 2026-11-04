@@ -22,8 +22,8 @@ ROLE_GROUPS = {
     "acme_admin": {"it-produktion-infra-imdb"},
     # Both groups may request an ACME account, matching the two `Require
     # shib-attr memberOf` lines in the /acme-accounts/(request|created)
-    # Apache block. "jira-administrators" is a placeholder for testing only -
-    # swap it for the real "org but not it-staff" group before shipping (the
-    # Apache-side placeholder must be changed at the same time).
-    "acme_requester": {"jira-administrators", "it-staff"},
+    # Apache block. "su-lokal-it-ansvarig" (local IT managers) is the real
+    # "org but not it-staff" requester group; keep this in lockstep with the
+    # Apache-side block in su-salt-states-services-cert's sucm-apache.conf.
+    "acme_requester": {"su-lokal-it-ansvarig", "it-staff"},
 }

@@ -48,7 +48,7 @@ def _short_username(remote_user):
 @bp.before_request
 def before_request():
     # Mirrors main.bp's before_request. Apache/Shibboleth enforces the
-    # actual group membership per path (jira-administrators/it-staff for
+    # actual group membership per path (su-lokal-it-ansvarig/it-staff for
     # the request form, it-produktion-infra-imdb for the admin views) -
     # role checks below are defense-in-depth on top of that. Apache sets the
     # X-Remote-* headers via `RequestHeader set`; fail closed if X-Remote-User
