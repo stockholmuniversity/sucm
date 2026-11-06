@@ -133,19 +133,30 @@ endpoint. Key design points:
     since these endpoints are reached directly by unauthenticated-at-the-Apache-layer clients.
 
 ### Auth tiers (Apache/Shibboleth, config lives in the separate `su-salt-states-services-cert` repo)
-- General app → `it-staff` (existing default `<LocationMatch "^/">`); `/acme-accounts/request`+`/created`
-  → `it-staff` **or** `su-lokal-it-ansvarig` (the self-service ACME account requester group).
-- `/acme-accounts/admin*` → `it-produktion-infra-imdb`, via a more specific `<LocationMatch>` block that
-  sets **`AuthMerging Off`** — required, otherwise Apache's default `Require` merging is an implicit OR
-  across overlapping `<LocationMatch>` sections and `it-staff` would also satisfy the admin path.
+The whole app is gated at Apache except the ACME wire protocol. The `<LocationMatch>` blocks are
+**disjoint by construction** so the result does not depend on file order: a general catch-all uses a
+negative lookahead to exclude every path that has its own narrower block.
 - `/acme/...` (the ACME server itself) → unauthenticated at the Apache/Shibboleth layer (`Require all
-  granted` + `AuthMerging Off`, since certbot speaks JWS/EAB, not browser headers); all
+  granted` + `AuthType None`, since certbot speaks JWS/EAB, not browser headers); all
   authentication/authorization happens inside the app via JWS signature verification + EAB.
+- `/acme-accounts/admin*` and the bare `/acme-accounts/` index → `it-produktion-infra-imdb` only.
+- `/acme-accounts/request`+`/created` → `it-staff`, `su-lokal-it-ansvarig`, or
+  `it-produktion-infra-imdb` (the self-service ACME account requester groups).
+- Everything else (the general app) → `it-staff` **or** `it-produktion-infra-imdb`, via a catch-all
+  `<LocationMatch>` whose negative lookahead `(?!acme/|acme-accounts/)` excludes the blocks above.
+  (The infra team is included so they are not locked out of the general UI if they lack `it-staff`.)
+  When adding a new special-cased path, add a block for it AND add its prefix to this lookahead.
 - `/automation` (renders the application log) is additionally gated **in-app** to the
   `acme_admin` role (`it-produktion-infra-imdb`) rather than the broad `it-staff` group, because it
-  exposes raw operational log output the wider cert-manager population does not need. The
-  corresponding Apache `<LocationMatch>` should be tightened to the same group (see
-  `su-salt-states-services-cert`).
+  exposes raw operational log output the wider cert-manager population does not need. The Apache
+  catch-all still only requires `it-staff` for it; tightening Apache to match is a possible follow-up.
+
+**Why the lookahead, not `AuthMerging`:** Apache evaluates `<LocationMatch>` in file order and, with
+the default `AuthMerging Off`, the *last* matching block supplies the effective `Require` set — it
+does not union overlapping blocks. Relying on block order is fragile; making the general block exclude
+the specific paths (and keeping each exception block self-contained with `AuthMerging Off`) keeps the
+config order-independent and fail-closed. (An earlier revision of this file claimed `AuthMerging Off`
+alone scoped the blocks — that was wrong and caused the `su-lokal-it-ansvarig` 401s.)
 
 **Header trust / fail-closed**: Apache sets `X-Remote-User`/`X-Remote-Display-Name`/`X-Remote-MemberOf`
 via `RequestHeader set` in `sucm-apache.conf`, which *replaces* any client-supplied value, so the
@@ -159,6 +170,16 @@ header-less by design and authenticates via JWS/EAB.)
 JWS-authenticated, not cookie-based. Session cookies are `HttpOnly`/`SameSite=Lax`/`Secure`, and a
 restrictive `Content-Security-Policy` (+ `X-Frame-Options`/`X-Content-Type-Options`) is set in
 `create_app()`'s `after_request`.
+
+**Frontend (no external dependencies)**: The UI is vanilla JS + vendored Bootstrap CSS served from
+`sucm/static/` — no CDN, no jQuery, no Bootstrap JS. CSP is `script-src 'self'` (strict: no inline
+scripts and no inline event-handler attributes like `onclick=`; both are blocked) and
+`style-src 'self' 'unsafe-inline'` (inline `<style>` blocks in templates are still allowed).
+`sucm/static/js/sucm.js` is loaded on every page (shared helpers + navbar hamburger toggle, the only
+Bootstrap-JS feature the app used); page-specific behaviour lives in small per-page files
+(`index.js`, `active_certs.js`, `notifygroups.js`, `edit_cert.js`, `inspect_cert.js`,
+`automation.js`, `submit_csr.js`) included from the matching templates with `defer`. Any new page JS
+must go in a static file, never in a `<script>` block or handler attribute.
 
 **Web-form `secret_path` validation**: `edit_cert_response()` validates the submitted `secret_path`
 against the secrets backend's `get_all_paths()` (the same list the GUI dropdown is populated from)

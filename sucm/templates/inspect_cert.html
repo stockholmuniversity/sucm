@@ -146,24 +146,5 @@
         </div>
     </div>
 </div>
-<script>
-
-$(document).ready(function() {
-    $(".inline-form").on("submit", function() {
-        $(this).find(":submit").prop("disabled", true);
-        $(this).find(":submit").after('<span class="spinner-border spinner-border-sm loading-spinner" role="status" aria-hidden="true"></span>');
-    });
-
-    // Expandable cell functionality
-    $('.expandable-cell').on('click', function() {
-        var cell = $(this);
-        if (cell.hasClass('expanded')) {
-            cell.removeClass('expanded').css('max-height', '3em');
-        } else {
-            cell.addClass('expanded').css('max-height', 'none');
-        }
-    });
-});
-
-</script>
+<script src="{{ url_for('static', filename='js/inspect_cert.js') }}" defer></script>
 {% endblock %}

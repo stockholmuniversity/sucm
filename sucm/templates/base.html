@@ -1,8 +1,9 @@
 <!doctype html>
 <html>
 <head>
-	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.3.1/dist/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+	<link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
 	<title>{% block title %} {% endblock %}</title>
+	<script src="{{ url_for('static', filename='js/sucm.js') }}" defer></script>
 
     <style>
         .container-fluid {
@@ -94,16 +95,6 @@
 			</nav>
 {% block menubar %}{% endblock %}
 {% block submenu %}{% endblock %}
-
-<!-- jQuery Slim 3.3.1: A lightweight version of jQuery, excluding Ajax, effects, and currently deprecated code. -->
-<script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"></script>
-
-<!-- Popper.js 1.14.7: A library used for positioning tooltips and popovers effectively. Required by Bootstrap for certain components. -->
-<script src="https://cdn.jsdelivr.net/npm/popper.js@1.14.7/dist/umd/popper.min.js" integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1" crossorigin="anonymous"></script>
-
-<!-- Bootstrap Bundle 4.5.2: Includes both Bootstrap JS and Popper.js. Preferred over separate Bootstrap and Popper.js inclusions. -->
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
-
 
 		{% block content %}
 		{% endblock %}

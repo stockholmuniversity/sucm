@@ -68,14 +68,5 @@
         </table>
     </div>
 
-    <script>
-    $(document).ready(function(){
-      $("#search").on("keyup", function() {
-        var value = $(this).val().toLowerCase();
-        $("#certificates-table .certificate-row").filter(function() {
-          $(this).toggle($(this).text().toLowerCase().indexOf(value) > -1)
-        });
-      });
-    });
-    </script>
+    <script src="{{ url_for('static', filename='js/active_certs.js') }}" defer></script>
 {% endblock %}

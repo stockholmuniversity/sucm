@@ -23,11 +23,6 @@
     </div>
   </div>
 
-  <script>
-    $(document).ready(function() {
-      var logCard = document.getElementById("logCard");
-      logCard.scrollTop = logCard.scrollHeight;
-    });
-  </script>
+  <script src="{{ url_for('static', filename='js/automation.js') }}" defer></script>
 
 {% endblock %}

@@ -107,39 +107,5 @@
     </div>
 </div>
 
-<script>
-
-$(document).ready(function(){
-    var certTypeValue = $('select[name="cert_type"]').val();
-
-    $('select[name="notify_group"]').after('<input type="hidden" id="hiddennotify_group" name="notify_group" />');
-
-    if(certTypeValue.trim().toLowerCase() == "automatic"){
-        $('select[name="notify_group"]').prop("disabled", true);
-        $('#hiddennotify_group').val($('select[name="notify_group"]').val());
-    }
-
-    $('select[name="cert_type"]').on('change', function(){
-        certTypeValue = $(this).val();
-        if(certTypeValue.trim().toLowerCase() == "automatic"){
-            $('select[name="notify_group"]').prop("disabled", true);
-            $('#hiddennotify_group').val($('select[name="notify_group"]').val());
-        }
-        else{
-            $('select[name="notify_group"]').prop("disabled", false);
-            $('#hiddennotify_group').val('');
-        }
-    });
-
-    $('select[name="notify_group"]').on('change', function() {
-        $('#hiddennotify_group').val($(this).val());
-    });
-
-    $('form').on('submit', function(e) {
-        $("#submit-button").prop("disabled", true);
-        $("#loading-spinner").show();
-    });
-});
-
-</script>
+<script src="{{ url_for('static', filename='js/edit_cert.js') }}" defer></script>
 {% endblock %}

@@ -28,7 +28,7 @@
                         <div class="input-group">
                             <input type="file" class="form-control" id="customFile" name="csr_file" style="display:none;">
                             <input type="text" class="form-control" placeholder="Choose file..." id="file-name-display" readonly>
-                            <button type="button" class="btn btn-primary" onclick="document.getElementById('customFile').click();">Browse</button>
+                            <button type="button" class="btn btn-primary" id="browse-button">Browse</button>
                         </div>
                     </div>
                     <div class="mb-3">
@@ -38,9 +38,5 @@
             </div>
         </div>
     </div>
-    <script>
-        document.getElementById('customFile').addEventListener('change', function () {
-            document.getElementById('file-name-display').value = this.files[0].name;
-        });
-    </script>
+    <script src="{{ url_for('static', filename='js/submit_csr.js') }}" defer></script>
 {% endblock %}

@@ -44,13 +44,14 @@ def create_app():
 
     @app.after_request
     def set_security_headers(response):
-        # Content-Security-Policy: scripts/styles load from self plus the
-        # CDNs used by base.html (jQuery/Bootstrap) ; inline <style> blocks
-        # require style-src 'unsafe-inline'. Nothing loads from other origins.
+        # Content-Security-Policy: all scripts/styles are same-origin static
+        # files (vendored Bootstrap CSS + vanilla JS in sucm/static/). Inline
+        # <style> blocks in the templates still require style-src
+        # 'unsafe-inline'. Nothing loads from other origins.
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
-            "script-src 'self' https://code.jquery.com https://cdn.jsdelivr.net; "
-            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+            "script-src 'self'; "
+            "style-src 'self' 'unsafe-inline'; "
             "img-src 'self'; "
             "frame-ancestors 'none'; "
             "base-uri 'self'"
