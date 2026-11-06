@@ -106,6 +106,20 @@ def _validate_cert_form(form):
     return cert_conf, None
 
 
+def _get_certificate_detail_or_404(cert_id):
+    """
+    Fetch a Certificate row by id, aborting with 404 when it does not exist.
+
+    get_certificate_detail() returns {} for a missing row (some callers rely
+    on that falsy value), so without this guard a nonexistent/typed-in cert_id
+    (e.g. /191) 500s on the first dict access instead of returning 404.
+    """
+    cert_data = SucmCertificate().get_certificate_detail(cert_id)
+    if not cert_data:
+        abort(404)
+    return cert_data
+
+
 @bp.before_request
 def before_request():
     # Apache/Shibboleth sets X-Remote-User / X-Remote-MemberOf via
@@ -524,7 +538,7 @@ def add_cert():
 @bp.route("/<int:cert_id>", methods=["POST", "GET"])
 @require_role("cert_manager")
 def inspect_cert(cert_id):
-    cert_data = SucmCertificate().get_certificate_detail(cert_id)
+    cert_data = _get_certificate_detail_or_404(cert_id)
     certificate_authority_detail = SucmCertificate().get_certificate_authority_detail(
         cert_data["certificate_authority_id"]
     )
@@ -569,7 +583,7 @@ def inspect_cert(cert_id):
 @bp.route("/edit_cert?<cert_id>", methods=["POST", "GET"])
 @require_role("cert_manager")
 def edit_cert(cert_id):
-    cert_data = SucmCertificate().get_certificate_detail(cert_id)
+    cert_data = _get_certificate_detail_or_404(cert_id)
 
     if cert_data.get("cert_type") == ACME_CERT_TYPE:
         return redirect(
@@ -626,7 +640,7 @@ def edit_cert(cert_id):
 @bp.route("/submit_csr/<int:cert_id>", methods=["POST", "GET"])
 @require_role("cert_manager")
 def submit_csr(cert_id):
-    cert_data = SucmCertificate().get_certificate_detail(cert_id)
+    cert_data = _get_certificate_detail_or_404(cert_id)
     return render_template("submit_csr.html", cert_data=cert_data)
 
 
