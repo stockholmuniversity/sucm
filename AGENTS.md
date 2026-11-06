@@ -180,11 +180,35 @@ Bootstrap-JS feature the app used); page-specific behaviour lives in small per-p
 (`index.js`, `active_certs.js`, `notifygroups.js`, `edit_cert.js`, `inspect_cert.js`,
 `automation.js`, `submit_csr.js`) included from the matching templates with `defer`. Any new page JS
 must go in a static file, never in a `<script>` block or handler attribute.
+Known-harmless console noise: with strict `script-src 'self'`, browsers (Firefox in particular) log
+"blocked an inline script (script-src-elem)" errors for scripts injected by *browser extensions*
+(uBlock Origin, cookie-banner auto-clickers, etc.) — extension content scripts are subject to the
+page CSP. These are expected, do not indicate an app bug, and must NOT be "fixed" by whitelisting
+hashes/nonces (extension-specific, change over time, and would weaken the policy). Verify the app
+itself is clean by testing in a private window with extensions disabled.
 
 **Web-form `secret_path` validation**: `edit_cert_response()` validates the submitted `secret_path`
 against the secrets backend's `get_all_paths()` (the same list the GUI dropdown is populated from)
 plus a shape check, rejecting anything else. The Vault user's own ACLs remain the authoritative
 control; this app-side allow-list is defense-in-depth.
+
+**Add/edit-cert form validation**: `edit_cert_response()` runs the submitted form through
+`_validate_cert_form()` (`sucm_routes.py`), which strips + shape-checks `common_name` against a
+permissive DNS-name regex (rejects empty/whitespace/spaces/URLs; allows `*.` wildcards), normalises
+`subject_alt` to a clean csv of the same, parses `certificate_authority` as an int (the form now
+posts a bare numeric id, not the old stringified-tuple `value` whose `[1]`-character indexing was a
+latent bug), restricts `cert_type` to `CERT_TYPES`, and requires a non-empty `notify_group` for
+`cert_type == "Manual"` (no auto-renewal → expiry email is the only safety net). The `common_name`
+input is also marked `required` client-side (cosmetic only; server-side is authoritative).
+
+**⚠️ Full data-validation audit still PENDING**: the above is a scoped fix for the "cert without a
+common name" bug, not a comprehensive pass. Known-remaining blind spots not yet addressed:
+`country`/`state`/`city`/`organisation` are unvalidated (cryptography raises a 500 if `country` is
+present but not 2 alpha chars); the manual-CSR path (`submit_csr_response`) does no CSR content
+validation beyond a length check (a malformed CSR 500s at the CA rather than being rejected
+cleanly); `country`/etc. come from `[cert_defaults]` config and are trusted as-is. The ACME
+finalize path (`sucm_acme_order.finalize_order`) is already well-validated and was intentionally
+left alone. Revisit if/when a fuller audit is scheduled.
 
 ## Runtime dependencies of note
 Flask, flask-SSO (Shibboleth-based auth via headers, see README apache example),

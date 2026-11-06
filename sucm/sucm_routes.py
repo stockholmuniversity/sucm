@@ -1,4 +1,5 @@
 import os
+import re
 
 from flask import (
     Blueprint,
@@ -32,6 +33,77 @@ def _is_valid_secret_path(secret_path):
     if not secret_path or ".." in secret_path or not secret_path.endswith("/"):
         return False
     return secret_path in sucm_secret.get_all_paths()
+
+
+# Loose DNS name shape: letters/digits/hyphen/dots, optional leading "*."
+# wildcard, labels not empty, total length bounded. Deliberately permissive -
+# the goal is to catch obvious mistakes (spaces, URLs, junk), not to be a
+# full RFC 1034 validator (the CA remains the authoritative check).
+_DNS_NAME_RE = re.compile(
+    r"^(\*\.)?[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$"
+)
+
+
+def _is_plausible_dns_name(name):
+    return bool(name) and len(name) <= 253 and bool(_DNS_NAME_RE.match(name))
+
+
+def _validate_cert_form(form):
+    """
+    Validate the add/edit-cert form fields and return (cert_conf, error).
+
+    On success `error` is None and `cert_conf` holds the cleaned values
+    (common_name stripped, subject_alt normalized to a clean csv, the
+    certificate_authority_id parsed as an int). On failure `error` is a
+    human-readable message and `cert_conf` is None.
+    """
+    common_name = form["common_name"].strip()
+    if not _is_plausible_dns_name(common_name):
+        return None, f"Failure! Invalid commonName: {common_name!r}"
+
+    # Normalise subject_alt to a clean csv of plausible DNS names.
+    san_list = []
+    for san in form["subject_alt"].split(","):
+        san = san.strip()
+        if not san:
+            continue
+        if not _is_plausible_dns_name(san):
+            return None, f"Failure! Invalid subjectAltName entry: {san!r}"
+        san_list.append(san)
+    subject_alt = ",".join(san_list) if san_list else None
+
+    # certificate_authority is rendered as value="{{certificate_authority[0]}}"
+    # (a bare numeric id); parse it as an int so a tampered/garbled option is
+    # rejected here instead of producing a nonsense CA_Id in the DB.
+    try:
+        certificate_authority_id = int(form["certificate_authority"])
+    except (KeyError, ValueError):
+        return None, "Failure! Invalid certificate authority selection."
+
+    cert_type = form["cert_type"]
+    if cert_type not in CERT_TYPES:
+        return None, "Failure! Invalid cert type."
+
+    notify_group = form["notify_group"].strip()
+    # Manual certs have no auto-renewal, so the expiry notification group is
+    # the only thing standing between the cert and silent expiry.
+    if cert_type == "Manual" and not notify_group:
+        return None, "Failure! Manual certificates require a notify group."
+
+    cert_conf = {
+        "common_name": common_name,
+        "certificate_authority_id": certificate_authority_id,
+        "country": form["country"],
+        "state": form["state"],
+        "city": form["city"],
+        "organisation": form["organisation"],
+        "subject_alt": subject_alt,
+        "cert_type": cert_type,
+        "notify_group": notify_group,
+        "status": None,
+        "secret_path": form["secret_path"],
+    }
+    return cert_conf, None
 
 
 @bp.before_request
@@ -161,28 +233,13 @@ def edit_cert_response():
                 )
             )
 
-        cert_conf = {
-            "common_name": request.form["common_name"],
-            "certificate_authority_id": request.form["certificate_authority"][1],
-            "country": request.form["country"],
-            "state": request.form["state"],
-            "city": request.form["city"],
-            "organisation": request.form["organisation"],
-            "subject_alt": request.form["subject_alt"],
-            "cert_type": request.form["cert_type"],
-            "notify_group": request.form["notify_group"],
-            "status": None,
-            "secret_path": request.form["secret_path"],
-        }
-
-        if not cert_conf["common_name"]:
-            noti_type = "Danger"
-            noti_msg = "Failure! Missing commonName"
+        cert_conf, error = _validate_cert_form(request.form)
+        if error is not None:
             return redirect(
                 url_for(
                     "main.index",
-                    notification_message=noti_msg,
-                    notification_type=noti_type,
+                    notification_message=error,
+                    notification_type="Danger",
                 )
             )
 
