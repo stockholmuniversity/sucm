@@ -395,7 +395,12 @@ class SucmCertificate:
         self.csr = csr.public_bytes(serialization.Encoding.PEM).decode("utf-8")
         self.status = "New CSR"
         self.commit_changes_to_vault()
-        self.commit_changes_to_db()
+        # Fail fast, exactly like submit_manual_csr() below: the Certificate
+        # row must exist before renew_cert_with_csr() contacts the CA,
+        # otherwise a failed write (e.g. a NOT NULL column rejected) would be
+        # silently swallowed and the issued cert stored as an orphan
+        # ActiveCertificate with no Certificate row (finding F6).
+        self.commit_changes_to_db(raise_on_failure=True)
 
     def submit_manual_csr(self, csr=None):
         if csr is None:

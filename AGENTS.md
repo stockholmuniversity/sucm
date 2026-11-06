@@ -195,11 +195,26 @@ control; this app-side allow-list is defense-in-depth.
 **Add/edit-cert form validation**: `edit_cert_response()` runs the submitted form through
 `_validate_cert_form()` (`sucm_routes.py`), which strips + shape-checks `common_name` against a
 permissive DNS-name regex (rejects empty/whitespace/spaces/URLs; allows `*.` wildcards), normalises
-`subject_alt` to a clean csv of the same, parses `certificate_authority` as an int (the form now
-posts a bare numeric id, not the old stringified-tuple `value` whose `[1]`-character indexing was a
-latent bug), restricts `cert_type` to `CERT_TYPES`, and requires a non-empty `notify_group` for
-`cert_type == "Manual"` (no auto-renewal → expiry email is the only safety net). The `common_name`
-input is also marked `required` client-side (cosmetic only; server-side is authoritative).
+`subject_alt` to a clean csv of the same (**empty SAN must be stored as `""`, never `None`** —
+`Certificate.Subject_Alt` is `NOT NULL`; normalising to `None` caused a swallowed `23000` DB error
+that left an issued cert with no `Certificate` row), parses `certificate_authority` as an int (the
+form now posts a bare numeric id, not the old stringified-tuple `value` whose `[1]`-character
+indexing was a latent bug), restricts `cert_type` to `CERT_TYPES`, and requires a non-empty
+`notify_group` for `cert_type == "Manual"` (no auto-renewal → expiry email is the only safety net).
+The `common_name` input is also marked `required` client-side (cosmetic only; server-side is
+authoritative).
+
+**Automatic-path DB write is fail-fast**: `create_new_key_and_csr()` calls
+`commit_changes_to_db(raise_on_failure=True)` (same as `submit_manual_csr`), so a failed
+`Certificate` write raises before `renew_cert_with_csr()` contacts the CA — preventing an orphan
+`ActiveCertificate` with no parent row (the F6 problem). `edit_cert_response()` catches the raise in
+its broad `except` and redirects with a `Danger` flash.
+
+**Missing-row 404 guard**: read-only cert routes (`inspect_cert`, `edit_cert`, `submit_csr`) fetch
+via `_get_certificate_detail_or_404()`, which `abort(404)`s when `get_certificate_detail()` returns
+`{}` (a nonexistent/typed-in cert id like `/191` previously 500'd on the first dict access). The
+`{}`-return contract of `get_certificate_detail()`/`get_common_name()` is kept because several
+callers (add-vs-edit detection, CN dup check, ACME order path) rely on the falsy value.
 
 **⚠️ Full data-validation audit still PENDING**: the above is a scoped fix for the "cert without a
 common name" bug, not a comprehensive pass. Known-remaining blind spots not yet addressed:

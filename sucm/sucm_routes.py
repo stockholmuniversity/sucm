@@ -70,7 +70,9 @@ def _validate_cert_form(form):
         if not _is_plausible_dns_name(san):
             return None, f"Failure! Invalid subjectAltName entry: {san!r}"
         san_list.append(san)
-    subject_alt = ",".join(san_list) if san_list else None
+    # Certificate.Subject_Alt is NOT NULL, so an empty SAN list must be stored
+    # as "" (the historical value), never None.
+    subject_alt = ",".join(san_list)
 
     # certificate_authority is rendered as value="{{certificate_authority[0]}}"
     # (a bare numeric id); parse it as an int so a tampered/garbled option is
