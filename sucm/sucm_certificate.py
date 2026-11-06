@@ -233,7 +233,7 @@ class SucmCertificate:
         except IndexError:
             return {}
 
-    def get_renewable_certs(self, days_until_expiry=30):
+    def get_renewable_certs(self, days_until_expiry=14):
         # days_until_expiry is coerced to int and only ever inlined as an
         # integer - never parameterized as a raw string fragment.
         days = int(days_until_expiry)
