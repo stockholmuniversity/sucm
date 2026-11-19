@@ -234,7 +234,8 @@ apscheduler (background jobs), requests_toolbelt.
 These MUST be resolved before the ACME layer (or a production release) ships:
 - **`[ACME]` config section** (`sucm_conf.ini`): set `ca_plugin_name`, `secret_path`, and
   `notify_group_id` to real production values — see "The ACME MITM layer" above. Issuance fails
-  closed until then.
+  closed until then. Also set `public_base_url` (e.g. `https://acme.it.su.se`) so the portal shows the
+  public ACME directory URL; if empty it falls back to the portal request's host.
 
 Auth in production is handled by Apache + Shibboleth, which sets
 `X-Remote-User` / `X-Remote-MemberOf` headers; see "Auth tiers" above for which

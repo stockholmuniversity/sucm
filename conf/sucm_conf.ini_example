@@ -40,6 +40,10 @@ account_key_pw =
 ca_plugin_name = Harica_EAB
 secret_path =
 notify_group_id =
+# Public base URL of the ACME endpoint, e.g. https://acme.it.su.se. Used only
+# for the directory URL shown in the /acme-accounts portal. If empty, it is
+# derived from the portal request's host.
+public_base_url =
 
 [SUCM]
 secret_key = "random string"

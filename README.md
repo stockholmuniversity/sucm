@@ -175,6 +175,11 @@ portal at `/acme-accounts/...` (`sucm_acme_routes.py`). Key points:
     `_load_acme_config()` in `sucm_acme_order.py`). These are **required before
     production** - if `ca_plugin_name`/`secret_path` are unset, `finalize_order()`
     fails closed (serverInternal) rather than issuing into a default/test location.
+  - The portal shows users a ready-made certbot config. Its `server =` URL is
+    `[ACME] public_base_url` + `/acme/directory` when set (the ACME endpoint is
+    published under its own name, e.g. `https://acme.it.su.se`), otherwise it is
+    derived from the host of the portal request. The wire protocol itself always
+    uses the request host.
   - Nonces are DB-backed (`AcmeNonce`), not in-memory, since the app can run
     as multiple WSGI processes/threads. `SucmAcmeNonce.consume()` is a single
     atomic conditional `DELETE` (checked by affected-row count), so a nonce is

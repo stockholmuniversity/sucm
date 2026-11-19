@@ -14,7 +14,7 @@ from flask import (
 from .sucm_acme_account import SucmAcmeAccount
 from .sucm_acme_reveal import SucmAcmeRevealToken
 from .sucm_roles import parse_member_of, require_role, roles_for_groups
-from .sucm_settings import audit_logger
+from .sucm_settings import audit_logger, cfg
 
 bp = Blueprint("acme_accounts", __name__, url_prefix="/acme-accounts")
 
@@ -23,10 +23,15 @@ def _build_certbot_config(eab_kid, hmac_key):
     """
     Builds a ready-to-use certbot cli.ini for this account: just the ACME
     directory URL and the EAB kid/hmac, everything else left at certbot's
-    own defaults. The directory URL is derived from the current request so
-    it is correct for whichever environment (test/prod) issued it.
+    own defaults. The directory URL uses [ACME] public_base_url when set (the
+    ACME endpoint is published under its own name, not the portal's); if
+    empty it is derived from the current request.
     """
-    directory_url = url_for("acme_server.directory", _external=True)
+    base_url = cfg.get("ACME", "public_base_url", fallback="").strip().rstrip("/")
+    if base_url:
+        directory_url = base_url + url_for("acme_server.directory")
+    else:
+        directory_url = url_for("acme_server.directory", _external=True)
     return (
         f"server = {directory_url}\n"
         f"eab-kid = {eab_kid}\n"
