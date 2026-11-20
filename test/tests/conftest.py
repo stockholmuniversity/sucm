@@ -1,6 +1,6 @@
 import pytest
 
-from acme_tester.client import AcmeClient
+from acme_tester.client import AcmeClient, AcmeProblem
 from acme_tester.config import Config
 
 
@@ -17,9 +17,27 @@ def client(cfg):
     return AcmeClient(cfg.directory_url, verify=cfg.verify)
 
 
-@pytest.fixture
-def need_eab(cfg):
+@pytest.fixture(scope="session")
+def _eab_verified(cfg):
+    """Register once per run; a rejected EAB stops the run with one clear message instead of dozens of errors."""
     if not (cfg.eab_kid and cfg.eab_hmac_key and cfg.test_domain):
+        return False
+    try:
+        AcmeClient(cfg.directory_url, verify=cfg.verify, key_file=cfg.account_key_file).new_account(
+            cfg.eab_kid, cfg.eab_hmac_key
+        )
+    except AcmeProblem as exc:
+        pytest.exit(
+            f"ACME_EAB_KID/ACME_EAB_HMAC_KEY rejected by the server ({exc}). Request a new account in the portal, "
+            "have it activated, update tester.env and delete account_key.pem in the state dir. See test/README.md.",
+            returncode=2,
+        )
+    return True
+
+
+@pytest.fixture
+def need_eab(cfg, _eab_verified):
+    if not _eab_verified:
         pytest.skip("ACME_EAB_KID / ACME_EAB_HMAC_KEY / ACME_TEST_DOMAIN not set")
     return cfg
 
