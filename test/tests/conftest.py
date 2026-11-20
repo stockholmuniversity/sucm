@@ -60,6 +60,22 @@ def acct2(cfg):
     return c
 
 
+@pytest.fixture
+def issued_order(acct, cfg):
+    """A valid, already-finalized order owned by the tester account (see README)."""
+    if not cfg.issued_order_url:
+        pytest.skip("no issued order known (run `just issue` once, or set ACME_ISSUED_ORDER_URL)")
+    try:
+        order = acct.get_order(cfg.issued_order_url)
+    except AcmeProblem as exc:
+        if exc.status == 404:
+            pytest.skip("saved order does not belong to this account (run `just issue` once)")
+        raise
+    if order["status"] != "valid" or not order.get("certificate"):
+        pytest.skip(f"issued order is not valid: {order.get('status')}")
+    return order
+
+
 def assert_problem(resp, *types, status=None):
     """Assert an ACME problem document; `types` are short names like 'badNonce'."""
     assert 400 <= resp.status_code < 500, f"{resp.status_code}: {resp.text[:300]}"

@@ -153,17 +153,6 @@ def test_l3_01c_other_account_cannot_finalize(acct2, foreign_order, cfg):
 # endpoints. They do not issue a new certificate themselves.
 
 
-@pytest.fixture
-def issued_order(acct, cfg):
-    """A valid, already-finalized order owned by account A (see README)."""
-    if not cfg.issued_order_url:
-        pytest.skip("no issued order known (run `just issue` once, or set ACME_ISSUED_ORDER_URL)")
-    order = acct.get_order(cfg.issued_order_url)
-    if order["status"] != "valid" or not order.get("certificate"):
-        pytest.skip(f"issued order is not valid: {order.get('status')}")
-    return order
-
-
 def test_l3_01d_other_account_cannot_download_cert(acct2, issued_order):
     """Account B must not be able to download account A's certificate (L3-01)."""
     url = issued_order["certificate"]

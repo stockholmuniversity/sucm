@@ -105,15 +105,11 @@ def test_l2_09_failed_finalize_is_retryable(acct, cfg):
     assert_problem(resp, "badCSR")
 
 
-def test_l2_09b_finalize_valid_order_again_is_order_not_ready(acct, cfg):
+def test_l2_09b_finalize_valid_order_again_is_order_not_ready(acct, cfg, issued_order):
     """Re-finalizing an already-valid order must give orderNotReady (audit C2;
     this is what certbot does when it retries). Needs a previously issued order,
     see the 'order-url' option in tester.env / README."""
-    order_url = cfg.issued_order_url
-    if not order_url:
-        pytest.skip("no issued order known (run `just issue` once, or set ACME_ISSUED_ORDER_URL)")
-    order = acct.get_order(order_url)
-    assert order["status"] == "valid", order
+    order = issued_order
     csr_der, _ = make_csr([cfg.test_domain])
     resp = acct.post_raw(
         order["finalize"], acct.sign(order["finalize"], {"csr": b64(csr_der)})
