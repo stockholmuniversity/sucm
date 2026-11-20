@@ -127,6 +127,7 @@ on the test account). Status: **CONFIRMED** (reproduced live), **CONFIRMED (code
 | F16 | D1 | No cap on identifiers per order | Live: an order with 100 identifiers → 201 (100 authz rows). Nonce growth per response: code only | **CONFIRMED.** Record a decision / add a cap (and a rate limit on `new-nonce`) |
 | F17 | C4 | Duplicate identifiers in one order create duplicate authorizations | Live: 2× same name → 201 with 2 authz URLs | **CONFIRMED.** Deduplicate or reject |
 | F18 | New (found while verifying D4/C5) | Malformed payload shapes give HTTP 500 HTML: `csr` that is not valid base64url; `identifiers` not a list (`"abc"`); identifier `value` not a string (`5`) | Live: all three → 500 `text/html` (same class as F7: robustness, not an auth bypass) | **NEW, CONFIRMED.** Validate input types, return `malformed` |
+| F20 | Re-revoking a revoked cert returns `unauthorized` instead of `alreadyRevoked` again (regression of F9, seen on v0.30.3, 2026-11-20) | `revoke_cert` only reports `alreadyRevoked` when the order's `Certificate` row has no active certs left (`_cert_matches_leaf`); several issuances for the same CN share one `cert_id`, so other active certs hide the revoked one | Low priority. Fix: remember revoked serials (or match on issuer+serial including revoked rows). `test_7` is xfail (non-strict) until fixed |
 
 Audit items that turned out fine or are outdated:
 

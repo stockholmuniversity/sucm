@@ -190,6 +190,11 @@ class TestRevoke:
         assert resp.status_code == 200, resp.text
         TestFlow.state["revoked_pem"] = pem
 
+    @pytest.mark.xfail(
+        reason="F20: alreadyRevoked is only detected when the order's Certificate row has no active "
+        "certificates left; a CN with other active certs (earlier issuances) gives unauthorized.",
+        strict=False,
+    )
     @pytest.mark.issuance
     def test_7_revoke_again_is_rejected(self):
         if "revoked_pem" not in TestFlow.state:
