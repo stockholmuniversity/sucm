@@ -56,7 +56,9 @@ re-finalize, certificate download and revocation behaviour without issuing a new
 You can also set `ACME_ISSUED_ORDER_URL` in `tester.env` to override.
 
 State (credentials, keys, certbot's config) lives outside the repo in `~/.config/sucm-acme-tester/`
-(override with `ACME_STATE_DIR`). Environment variables override `tester.env`. Nothing secret is ever committed.
+(override with `ACME_STATE_DIR`). To keep several targets side by side, set `ACME_ENV`: `ACME_ENV=prod just init`
+creates `~/.config/sucm-acme-tester-prod/` with its own `tester.env`, EAB account, keys and certbot state, and
+`ACME_ENV=prod just test` uses it (without `ACME_ENV` you get the default test directory). Environment variables override `tester.env`. Nothing secret is ever committed.
 
 ## Running
 

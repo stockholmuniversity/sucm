@@ -11,7 +11,11 @@
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
-state_dir := env("ACME_STATE_DIR", env("HOME") + "/.config/sucm-acme-tester")
+# ACME_ENV=prod selects a separate state dir (~/.config/sucm-acme-tester-prod) so test and prod configs coexist.
+# ACME_STATE_DIR, if set, wins.
+tester_env := env("ACME_ENV", "")
+state_dir := env("ACME_STATE_DIR", env("HOME") + "/.config/sucm-acme-tester" + if tester_env == "" { "" } else { "-" + tester_env })
+export ACME_STATE_DIR := state_dir
 py := ".venv/bin/python"
 
 # List recipes
