@@ -88,7 +88,7 @@ class AcmeClient:
             data=json.dumps(body),
             headers={"Content-Type": "application/jose+json"},
             verify=self.verify,
-            timeout=60,
+            timeout=float(os.environ.get("ACME_POST_TIMEOUT") or 60),
         )
         self.nonce = resp.headers.get("Replay-Nonce")
         return resp
