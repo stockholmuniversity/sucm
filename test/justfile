@@ -62,6 +62,17 @@ certbot:
     @read -r -p "This orders a REAL certificate from the CA. Continue? [y/N] " a; [ "$a" = y ] || { echo "Aborted by user."; exit 0; }
     e2e/certbot.sh
 
+# 24h soak: orders (and revokes) a REAL certificate every 5 min and logs step times to <state dir>/soak-*.csv
+# Knobs: ACME_SOAK_INTERVAL (s), ACME_SOAK_HOURS, ACME_SOAK_REVOKE=0, ACME_SOAK_MAX_FAILS, ACME_POST_TIMEOUT (see soak.py).
+# Stop early with Ctrl-C or `touch <state dir>/soak.stop`. Run it in tmux/screen.
+soak: _venv
+    @read -r -p "This orders a REAL certificate every ${ACME_SOAK_INTERVAL:-300}s for ${ACME_SOAK_HOURS:-24}h. Continue? [y/N] " a; [ "$a" = y ] || { echo "Aborted by user."; exit 0; }
+    {{py}} -m acme_tester.soak
+
+# Summarise a soak log (newest by default); safe while the soak runs
+soak-report *file: _venv
+    {{py}} -m acme_tester.soak_report {{file}}
+
 [private]
 _venv:
     @[ -x {{py}} ] && {{py}} -c "import pytest, requests, cryptography" 2>/dev/null || just setup
